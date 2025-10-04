@@ -226,3 +226,11 @@ pkg-config --cflags opencv4
 ls -ld /usr/include/opencv4 /usr/local/include/opencv4 2>/dev/null || true
 pkg-config --libs opencv4
 
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/yolo-trt-rs$ pkg-config --cflags opencv4
+-I/usr/local/include/opencv4
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/yolo-trt-rs$ ls -ld /usr/include/opencv4 /usr/local/include/opencv4 2>/dev/null || true
+drwxr-xr-x 3 root root 4096 Mar 17  2023 /usr/include/opencv4
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/yolo-trt-rs$ pkg-config --libs opencv4
+-L/usr/local/lib -lopencv_gapi -lopencv_highgui -lopencv_ml -lopencv_objdetect -lopencv_photo -lopencv_stitching -lopencv_video -lopencv_calib3d -lopencv_features2d -lopencv_dnn -lopencv_flann -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_core
+
+
