@@ -222,3 +222,7 @@ Caused by:
   note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 warning: build failed, waiting for other jobs to finish...
 
+pkg-config --cflags opencv4
+ls -ld /usr/include/opencv4 /usr/local/include/opencv4 2>/dev/null || true
+pkg-config --libs opencv4
+
