@@ -23,5 +23,18 @@ error: metadata-generation-failed
 × Encountered error while generating package metadata.
 ╰─> See above for output.
 
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+image = "0.25"
+imageproc = "0.25"
+ndarray = { version = "0.15", features = ["rayon"] }
+noise = "0.9"
+num-traits = "0.2"
+nokhwa = { version = "0.10", features = ["input-v4l", "output-threaded"] }
+ort = { version = "2", features = ["download-binaries", "cuda"], default-features = false }
+rayon = "1"
+thiserror = "1"
+
 note: This is an issue with the package mentioned above, not pip.
 hint: See above for details.
