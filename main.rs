@@ -10,7 +10,7 @@ use opencv::{
 };
 use std::{collections::HashMap, fs, time::Instant};
 
-// ===== Konfigurasi cepat =====
+// ===== Konfigurasi =====
 const INPUT_W: i32 = 640;
 const INPUT_H: i32 = 640;
 const CONF_THR: f32 = 0.25;
@@ -24,7 +24,7 @@ fn load_classes(path: &str) -> Result<Vec<String>> {
     Ok(v)
 }
 
-// Letterbox: pertahankan aspek, pad 114 seperti Ultralytics
+// Letterbox: pertahankan aspek, padding 114 (Ultralytics)
 fn letterbox_to_square_bgr(bgr: &Mat, dst_w: i32, dst_h: i32) -> Result<Mat> {
     let w = bgr.cols() as f32;
     let h = bgr.rows() as f32;
@@ -53,7 +53,6 @@ fn letterbox_to_square_bgr(bgr: &Mat, dst_w: i32, dst_h: i32) -> Result<Mat> {
 }
 
 // BGR u8 -> letterbox 640x640 -> CHW f32 (R,G,B) [0..1]
-// (loop per-pixel: paling aman dan tanpa dependensi opencv::dnn)
 fn make_input_chw(bgr_u8: &Mat) -> Result<Vec<f32>> {
     let ltb = letterbox_to_square_bgr(bgr_u8, INPUT_W, INPUT_H)?;
     let size = ltb.size()?;
@@ -77,7 +76,7 @@ fn make_input_chw(bgr_u8: &Mat) -> Result<Vec<f32>> {
     Ok(out)
 }
 
-// ===== Struktur & util NMS =====
+// ===== Struktur & NMS =====
 #[derive(Clone)]
 struct Det { x1:f32, y1:f32, x2:f32, y2:f32, conf:f32, cls:usize }
 
@@ -189,11 +188,11 @@ fn decode_single_output(out:&[f32], shape:&[usize], num_classes:usize, conf_thr:
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1) kelas
+    // 1) classes
     let classes = load_classes("models/classes.json")?;
     let num_classes = classes.len();
 
-    // 2) kamera (atau ganti dari file kalau mau uji gambar)
+    // 2) kamera
     let mut cap = videoio::VideoCapture::new(0, videoio::CAP_V4L)
         .context("open camera /dev/video0")?;
     if !cap.is_opened()? { anyhow::bail!("camera not opened"); }
@@ -201,17 +200,15 @@ async fn main() -> Result<()> {
     let _ = cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 720.0);
     let _ = cap.set(videoio::CAP_PROP_FPS, 30.0);
 
-    // window
     highgui::named_window("preview", highgui::WINDOW_NORMAL)?;
     highgui::resize_window("preview", 960, 540)?;
 
     // 3) TensorRT engine
-    let plan = fs::read("models/best_fp16.engine")
-        .context("read models/best_fp16.engine")?;
-    let rt = Runtime::new().await; // async, bukan Result
+    let plan = fs::read("models/best_fp16.engine").context("read models/best_fp16.engine")?;
+    let rt = Runtime::new().await;
     let mut engine: Engine = rt.deserialize_engine(&plan).await.context("deserialize TRT")?;
 
-    // IO names (wajib single-output; kalau multi, kita kasih pesan & exit rapi)
+    // Ambil nama IO & cek jumlah output — SEMUA dilakukan sebelum bikin ctx
     let mut input_name: Option<String> = None;
     let mut outputs: Vec<String> = Vec::new();
     for i in 0..engine.num_io_tensors() {
@@ -224,27 +221,31 @@ async fn main() -> Result<()> {
     }
     let input_name = input_name.context("no input tensor")?;
     if outputs.len() != 1 {
-        eprintln!("Engine punya {} output tensor (kemungkinan EfficientNMS). Kode ini hanya mendukung single-output [1,N,5+C] / [1,5+C,N]. 
-Silakan re-export engine TANPA EfficientNMS, atau kasih aku shape semua output biar tak sesuaikan decodernya.", outputs.len());
+        eprintln!(
+            "Engine memiliki {} output tensor (kemungkinan EfficientNMS). \
+             Kode ini hanya mendukung engine single-output [1,N,5+C]/[1,5+C,N].",
+            outputs.len()
+        );
         return Ok(());
     }
-    let output_name = &outputs[0];
+    let output_name = outputs.remove(0);
 
+    // Ambil shape & alok buffer (sebelum ctx untuk hindari pinjam ganda)
     let in_shape = engine.tensor_shape(&input_name);
-    let out_shape = engine.tensor_shape(output_name);
+    let out_shape = engine.tensor_shape(&output_name);
     let in_elems: usize = in_shape.iter().product();
     let out_elems: usize = out_shape.iter().product();
 
-    let mut ctx = ExecutionContext::new(&mut engine).await.context("create exec ctx")?;
     let stream = Stream::new().await.context("create CUDA stream")?;
-
-    // pre-alloc host & device
     let mut h_in  = HostBuffer::<f32>::new(in_elems).await;
     let mut h_out = HostBuffer::<f32>::new(out_elems).await;
     let mut d_in  = DeviceBuffer::<f32>::new(in_elems,  &stream).await;
     let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream).await;
 
-    // 4) loop preview
+    // Baru sekarang bikin execution context (pinjam mut engine)
+    let mut ctx = ExecutionContext::new(&mut engine).await.context("create exec ctx")?;
+
+    // 4) loop
     let mut frame = Mat::default();
     let mut disp  = Mat::default();
 
@@ -255,7 +256,7 @@ Silakan re-export engine TANPA EfficientNMS, atau kasih aku shape semua output b
     loop {
         if !cap.read(&mut frame)? || frame.empty() { break; }
 
-        // preview resize ringan
+        // preview ringan
         imgproc::resize(&frame, &mut disp, Size::new(960, 540), 0.0, 0.0, imgproc::INTER_LINEAR)?;
 
         // preprocess (letterbox)
@@ -263,21 +264,21 @@ Silakan re-export engine TANPA EfficientNMS, atau kasih aku shape semua output b
         h_in.copy_from_slice(&input);
         h_in.copy_to(&mut d_in, &stream).await.context("H->D input")?;
 
-        // run TRT
+        // inference
         let mut io: HashMap<&str, &mut DeviceBuffer<f32>> = HashMap::new();
         io.insert(&input_name, &mut d_in);
         io.insert(&output_name, &mut d_out);
         ctx.enqueue(&mut io, &stream).await.context("enqueue")?;
 
-        // copy out
+        // ambil hasil
         h_out.copy_from(&d_out, &stream).await.context("D->H output")?;
         let out_host: Vec<f32> = h_out.to_vec();
 
-        // decode & NMS
+        // decode + NMS
         let mut dets = decode_single_output(&out_host, &out_shape, num_classes, CONF_THR);
         dets = nms(dets, IOU_THR);
 
-        // filter & gambar
+        // hitung & gambar
         let mut total = 0usize;
         for d in &dets {
             if let Some(name) = classes.get(d.cls) {
