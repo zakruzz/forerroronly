@@ -279,3 +279,10 @@ bash /tmp/jetson_gpu_audit.sh
   --optShapes=images:1x3x640x640 \
   --maxShapes=images:1x3x640x640 \
   --buildOnly
+
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=./models/best.onnx \
+  --saveEngine=./models/best_fp16.engine \
+  --fp16 \
+  --memPoolSize=workspace:2048 \
+  --skipInference
