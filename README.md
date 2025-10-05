@@ -234,3 +234,30 @@ ahmadradhy@ubuntu:~/tugasakhir-fairuz/yolo-trt-rs$ pkg-config --libs opencv4
 -L/usr/local/lib -lopencv_gapi -lopencv_highgui -lopencv_ml -lopencv_objdetect -lopencv_photo -lopencv_stitching -lopencv_video -lopencv_calib3d -lopencv_features2d -lopencv_dnn -lopencv_flann -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_core
 
 
+cat >/tmp/jetson_gpu_audit.sh <<'SH'
+set -e
+echo "== Jetson GPU Audit =="
+
+echo "[CUDA]"
+nvcc --version 2>/dev/null || true
+[ -d /usr/local/cuda ] && echo "  ✓ /usr/local/cuda ada" || echo "  ✗ CUDA dir tak ditemukan"
+
+echo "[TensorRT]"
+which /usr/src/tensorrt/bin/trtexec 2>/dev/null && echo "  ✓ trtexec ada" || echo "  ✗ trtexec tak ditemukan"
+dpkg -l | grep -E 'nvinfer|tensorrt' || echo "  (info) paket nvinfer/tensorrt tidak terdeteksi via dpkg list"
+
+echo "[OpenCV dev]"
+pkg-config --modversion opencv4 2>/dev/null && echo "  ✓ pkg-config opencv4 OK" || echo "  ✗ opencv4 via pkg-config tidak ada"
+ls /usr/include/opencv4 1>/dev/null 2>&1 && echo "  ✓ header /usr/include/opencv4" || echo "  ✗ header opencv4 tak ditemukan"
+
+echo "[GStreamer (opsional untuk capture lebih stabil)]"
+gst-launch-1.0 --version 2>/dev/null || echo "  (info) gstreamer-runtime tidak terdeteksi"
+
+echo "[LD paths]"
+echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+echo "  Cek libnvinfer:"
+ldconfig -p | grep -i nvinfer || echo "  (info) ldconfig tidak menemukan libnvinfer, pastikan JetPack/TensorRT sudah terpasang"
+
+echo "== Selesai =="
+SH
+bash /tmp/jetson_gpu_audit.sh
