@@ -6,10 +6,14 @@ use opencv::{
     videoio::{self, VideoCaptureTrait, VideoCaptureTraitConst},
 };
 use serde::Deserialize;
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs};
 
 use async_cuda::{DeviceBuffer, Stream};
-use async_tensorrt::{engine::TensorIoMode, runtime::Runtime};
+use async_tensorrt::{
+    engine::{Engine, TensorIoMode},
+    execution_context::ExecutionContext,
+    runtime::Runtime,
+};
 
 /// Konfigurasi dasar
 const ENGINE_PATH: &str = "./models/best_fp16.engine";
@@ -25,13 +29,15 @@ async fn main() -> Result<()> {
     // 2) TensorRT Runtime + Engine + ExecutionContext
     let plan = fs::read(ENGINE_PATH)
         .with_context(|| format!("read engine {}", ENGINE_PATH))?;
-    let rt = Runtime::new().await; // TIDAK mengembalikan Result
-    let engine = rt.deserialize_engine(&plan).await.context("deserialize engine")?;
-    let mut ctx = engine
-        .create_execution_context()
+    let rt = Runtime::new().await; // Runtime::new() tidak mengembalikan Result di versi kamu
+    let engine: Engine = rt
+        .deserialize_engine(&plan)
+        .await
+        .context("deserialize engine")?;
+    let mut ctx = ExecutionContext::from_engine(engine.clone())
         .await
         .context("create execution context")?;
-    let stream = Stream::new().await; // TIDAK mengembalikan Result
+    let stream = Stream::new().await?; // Stream::new() -> Result<Stream, _> di versi kamu
 
     // 3) Auto-detect input & output tensors
     let (input_name, output_name) = first_io_names(&engine)?;
@@ -63,14 +69,12 @@ async fn main() -> Result<()> {
         // a) preprocess: BGR -> RGB letterbox 640, CHW f32 [0..1]
         let (input_tensor, _ratio, _pad_w, _pad_h, _orig_w, _orig_h) = preprocess_to_tensor(&frame)?;
 
-        // b) upload ke GPU (PERLU stream + await)
+        // b) upload ke GPU
         let mut d_in = DeviceBuffer::from_slice(&input_tensor, &stream)
             .await
             .context("copy H->D input tensor")?;
         let out_elems: usize = output_shape.iter().product();
-        let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream)
-            .await
-            .context("alloc D output buffer")?;
+        let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream).await; // bukan Result
 
         // c) jalankan TRT (map nama -> buffer)
         let mut io_map: HashMap<&str, &mut DeviceBuffer<f32>> = HashMap::new();
@@ -79,7 +83,7 @@ async fn main() -> Result<()> {
 
         ctx.enqueue(&mut io_map, &stream).await.context("enqueue TRT")?;
 
-        // d) copy output ke host (PERLU stream + await)
+        // d) copy output ke host
         let mut out_host = vec![0f32; out_elems];
         d_out
             .copy_to(&mut out_host, &stream)
@@ -119,7 +123,7 @@ fn load_classes(p: &str) -> Result<Vec<String>> {
 }
 
 /// ---- TensorRT helpers ----
-fn first_io_names(engine: &async_tensorrt::engine::Engine) -> Result<(String, String)> {
+fn first_io_names(engine: &Engine) -> Result<(String, String)> {
     let n = engine.num_io_tensors();
     if n < 2 {
         bail!("Engine IO tensor kurang dari 2");
