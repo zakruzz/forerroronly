@@ -10,37 +10,29 @@ pub fn letterbox_bgr_to_rgb_f32_nchw(mat_bgr: &Mat, new_size: i32) -> Result<Arr
 
     let mut resized = Mat::default();
     imgproc::resize(
-        mat_bgr,
-        &mut resized,
+        mat_bgr, &mut resized,
         core::Size { width: nw, height: nh },
-        0.0, 0.0,
-        imgproc::INTER_LINEAR,
+        0.0, 0.0, imgproc::INTER_LINEAR
     )?;
 
     let dw = new_size - nw;
     let dh = new_size - nh;
-    let top = dh / 2;
-    let bottom = dh - top;
-    let left = dw / 2;
-    let right = dw - left;
+    let (top, bottom) = (dh/2, dh - dh/2);
+    let (left, right) = (dw/2, dw - dw/2);
 
     let mut padded = Mat::default();
-    // NOTE: fungsi & konstanta dari core::
     core::copy_make_border(
-        &resized,
-        &mut padded,
-        top, bottom, left, right,
-        core::BORDER_CONSTANT,
-        core::Scalar::new(114.0, 114.0, 114.0, 0.0),
+        &resized, &mut padded, top, bottom, left, right,
+        core::BORDER_CONSTANT, core::Scalar::new(114.0,114.0,114.0,0.0)
     )?;
 
     let mut rgb = Mat::default();
     imgproc::cvt_color(&padded, &mut rgb, imgproc::COLOR_BGR2RGB, 0)?;
 
     let mut f32img = Mat::default();
-    rgb.convert_to(&mut f32img, core::CV_32F, 1.0 / 255.0, 0.0)?;
+    rgb.convert_to(&mut f32img, core::CV_32F, 1.0/255.0, 0.0)?;
 
-    // Ambil slice data bertipe f32 secara aman
+    // ambil slice f32 aman
     let data: &[f32] = f32img.data_typed::<f32>()?;
     let rows = f32img.rows() as usize;
     let cols = f32img.cols() as usize;
@@ -60,5 +52,5 @@ pub fn letterbox_bgr_to_rgb_f32_nchw(mat_bgr: &Mat, new_size: i32) -> Result<Arr
         }
     }
 
-    Ok(Array::from_shape_vec(IxDyn(&[1, 3, new_size as usize, new_size as usize]), chw)?)
+    Ok(Array::from_shape_vec(IxDyn(&[1,3,new_size as usize,new_size as usize]), chw)?)
 }
