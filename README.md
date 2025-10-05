@@ -1469,3 +1469,56 @@ note: method defined here
 Some errors have detailed explanations: E0308, E0432, E0599.
 For more information about an error, try `rustc --explain E0308`.
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 3 previous errors
+
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/veh-counter-rs$ cargo build
+   Compiling veh-counter-rs v0.1.0 (/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs)
+warning: unused import: `self`
+ --> src/main.rs:6:12
+  |
+6 |     core::{self, Mat, MatTraitConst, MatTrait, Size, Vec3b},
+  |            ^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `serde::Deserialize`
+  --> src/main.rs:11:5
+   |
+11 | use serde::Deserialize;
+   |     ^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `deserialize_engine` found for opaque type `impl Future<Output = Runtime>` in the current scope
+   --> src/main.rs:132:10
+    |
+131 |       let mut engine: Engine = rt
+    |  ______________________________-
+132 | |         .deserialize_engine(&plan)
+    | |         -^^^^^^^^^^^^^^^^^^ method not found in `impl Future<Output = Runtime>`
+    | |_________|
+    |
+    |
+help: consider `await`ing on the `Future` and calling the method on its `Output`
+    |
+132 |         .await.deserialize_engine(&plan)
+    |          ++++++
+
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+   --> src/main.rs:182:12
+    |
+182 |         if frame.empty()? {
+    |            ^^^^^^^^^^^^^^ the `?` operator cannot be applied to type `bool`
+    |
+    = help: the trait `Try` is not implemented for `bool`
+
+warning: unused import: `MatTrait`
+ --> src/main.rs:6:38
+  |
+6 |     core::{self, Mat, MatTraitConst, MatTrait, Size, Vec3b},
+  |                                      ^^^^^^^^
+
+Some errors have detailed explanations: E0277, E0599.
+For more information about an error, try `rustc --explain E0277`.
+warning: `veh-counter-rs` (bin "veh-counter-rs") generated 3 warnings
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 2 previous errors; 3 warnings emitted
+
