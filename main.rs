@@ -1,353 +1,228 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
+use async_cuda::{DeviceBuffer, HostBuffer, Stream};
+use async_tensorrt::{runtime::Runtime};
+use async_tensorrt::engine::{Engine, ExecutionContext, TensorIoMode};
 use opencv::{
-    core::{self, BorderTypes, Mat, Size, Vec3b},
+    core::{self, Mat, MatTraitConst, MatTrait, Size, Vec3b},
     imgproc,
     prelude::*,
-    videoio::{self, VideoCaptureTrait, VideoCaptureTraitConst},
+    videoio,
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fs};
 
-use async_cuda::{DeviceBuffer, Stream};
-use async_tensorrt::{
-    engine::{Engine, TensorIoMode},
-    execution_context::ExecutionContext,
-    runtime::Runtime,
-};
+const INPUT_W: i32 = 640;
+const INPUT_H: i32 = 640;
 
-/// Konfigurasi dasar
-const ENGINE_PATH: &str = "./models/best_fp16.engine";
-const CLASSES_PATH: &str = "./models/classes.json";
-const INPUT_SIZE: i32 = 640; // YOLO 640x640
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    // 1) Load classes
-    let classes = load_classes(CLASSES_PATH)?;
-    println!("Loaded {} classes: {:?}", classes.len(), classes);
-
-    // 2) TensorRT Runtime + Engine + ExecutionContext
-    let plan = fs::read(ENGINE_PATH)
-        .with_context(|| format!("read engine {}", ENGINE_PATH))?;
-    let rt = Runtime::new().await; // Runtime::new() tidak mengembalikan Result di versi kamu
-    let engine: Engine = rt
-        .deserialize_engine(&plan)
-        .await
-        .context("deserialize engine")?;
-    let mut ctx = ExecutionContext::from_engine(engine.clone())
-        .await
-        .context("create execution context")?;
-    let stream = Stream::new().await?; // Stream::new() -> Result<Stream, _> di versi kamu
-
-    // 3) Auto-detect input & output tensors
-    let (input_name, output_name) = first_io_names(&engine)?;
-    let input_shape = engine.tensor_shape(&input_name);
-    let output_shape = engine.tensor_shape(&output_name);
-    println!(
-        "I/O => input '{}' {:?}, output '{}' {:?}",
-        input_name, input_shape, output_name, output_shape
-    );
-
-    // 4) OpenCV capture dari kamera 0
-    let mut cap = videoio::VideoCapture::new(0, videoio::CAP_ANY)
-        .context("open camera (index=0)")?;
-    if !cap.is_opened()? {
-        bail!("Camera 0 tidak bisa dibuka");
-    }
-    // opsional set resolusi (abaikan error kalau driver menolak)
-    let _ = cap.set(videoio::CAP_PROP_FRAME_WIDTH, 1280.0);
-    let _ = cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 720.0);
-
-    // 5) Loop: frame -> preprocess -> infer -> parse -> hitung
-    loop {
-        let mut frame = Mat::default();
-        if !cap.read(&mut frame)? || frame.empty() {
-            eprintln!("Frame kosong; kemungkinan kamera putus. Keluar.");
-            break;
-        }
-
-        // a) preprocess: BGR -> RGB letterbox 640, CHW f32 [0..1]
-        let (input_tensor, _ratio, _pad_w, _pad_h, _orig_w, _orig_h) = preprocess_to_tensor(&frame)?;
-
-        // b) upload ke GPU
-        let mut d_in = DeviceBuffer::from_slice(&input_tensor, &stream)
-            .await
-            .context("copy H->D input tensor")?;
-        let out_elems: usize = output_shape.iter().product();
-        let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream).await; // bukan Result
-
-        // c) jalankan TRT (map nama -> buffer)
-        let mut io_map: HashMap<&str, &mut DeviceBuffer<f32>> = HashMap::new();
-        io_map.insert(input_name.as_str(), &mut d_in);
-        io_map.insert(output_name.as_str(), &mut d_out);
-
-        ctx.enqueue(&mut io_map, &stream).await.context("enqueue TRT")?;
-
-        // d) copy output ke host
-        let mut out_host = vec![0f32; out_elems];
-        d_out
-            .copy_to(&mut out_host, &stream)
-            .await
-            .context("copy D->H output tensor")?;
-
-        // e) parse deteksi YOLO & hitung kendaraan
-        let dets = parse_yolo_output(
-            &out_host,
-            &output_shape,
-            classes.len(),
-            0.25, // conf threshold
-            0.45, // iou (untuk NMS internal sederhana)
-        )?;
-
-        let (veh_count, per_class) = count_vehicles(&dets, &classes);
-        println!("count={}   per_class={:?}", veh_count, per_class);
-    }
-
-    Ok(())
+/// ---- utils: load classes.json ----
+fn load_classes(path: &str) -> Result<Vec<String>> {
+    let txt = fs::read_to_string(path).context("read classes.json")?;
+    let v: Vec<String> = serde_json::from_str(&txt).context("parse classes.json")?;
+    Ok(v)
 }
 
-/// ---- Classes JSON ----
-#[derive(Deserialize)]
-struct ClassList(Vec<String>);
-
-fn load_classes(p: &str) -> Result<Vec<String>> {
-    let txt = fs::read_to_string(p)
-        .with_context(|| format!("read classes json at {}", p))?;
-    if txt.trim_start().starts_with('[') {
-        let v: Vec<String> = serde_json::from_str(&txt)?;
-        Ok(v)
-    } else {
-        let v: ClassList = serde_json::from_str(&txt)?;
-        Ok(v.0)
-    }
-}
-
-/// ---- TensorRT helpers ----
-fn first_io_names(engine: &Engine) -> Result<(String, String)> {
-    let n = engine.num_io_tensors();
-    if n < 2 {
-        bail!("Engine IO tensor kurang dari 2");
-    }
-    let mut inp = None;
-    let mut out = None;
-    for i in 0..n {
-        let name = engine.io_tensor_name(i);
-        match engine.tensor_io_mode(&name) {
-            TensorIoMode::Input if inp.is_none() => inp = Some(name),
-            TensorIoMode::Output if out.is_none() => out = Some(name),
-            _ => {}
-        }
-    }
-    match (inp, out) {
-        (Some(i), Some(o)) => Ok((i, o)),
-        _ => bail!("Tidak bisa menemukan input & output tensor name"),
-    }
-}
-
-/// ---- Preprocess YOLO: BGR Mat -> RGB letterbox 640 -> CHW f32 normalized ----
-fn preprocess_to_tensor(bgr: &Mat) -> Result<(Vec<f32>, f32, i32, i32, i32, i32)> {
-    let orig_w = bgr.cols();
-    let orig_h = bgr.rows();
-
-    // BGR -> RGB
-    let mut rgb = Mat::default();
-    imgproc::cvt_color(bgr, &mut rgb, imgproc::COLOR_BGR2RGB, 0)?;
-
-    // letterbox ke 640 x 640
-    let (resized, ratio, pad_w, pad_h) = letterbox(&rgb, INPUT_SIZE, INPUT_SIZE)?;
-
-    // ke CHW f32 0..1
-    let chw = mat_rgb_to_chw_f32(&resized)?;
-
-    Ok((chw, ratio, pad_w, pad_h, orig_w, orig_h))
-}
-
-/// scale + pad agar aspect ratio sama, pakai BORDER_CONSTANT=114 (gaya YOLO)
-fn letterbox(img_rgb: &Mat, dst_w: i32, dst_h: i32) -> Result<(Mat, f32, i32, i32)> {
-    let w = img_rgb.cols() as f32;
-    let h = img_rgb.rows() as f32;
-
-    let r = (dst_w as f32 / w).min(dst_h as f32 / h);
-    let new_w = (w * r).round() as i32;
-    let new_h = (h * r).round() as i32;
-
+/// ---- utils: resize+normalize to CHW f32 [0,1] ----
+fn mat_to_chw_f32_bgr(mat_bgr_u8: &Mat) -> Result<Vec<f32>> {
+    // resize to 640x640
     let mut resized = Mat::default();
     imgproc::resize(
-        img_rgb,
+        mat_bgr_u8,
         &mut resized,
-        Size::new(new_w, new_h),
+        Size::new(INPUT_W, INPUT_H),
         0.0,
         0.0,
         imgproc::INTER_LINEAR,
     )?;
 
-    let pad_w = dst_w - new_w;
-    let pad_h = dst_h - new_h;
-    let top = pad_h / 2;
-    let bottom = pad_h - top;
-    let left = pad_w / 2;
-    let right = pad_w - left;
+    // Expect CV_8UC3
+    let size = resized.size()?;
+    let (h, w) = (size.height, size.width);
+    let mut out = vec![0f32; (3 * h * w) as usize];
 
-    let mut padded = Mat::default();
-    core::copy_make_border(
-        &resized,
-        &mut padded,
-        top,
-        bottom,
-        left,
-        right,
-        BorderTypes::BORDER_CONSTANT as i32,
-        core::Scalar::new(114.0, 114.0, 114.0, 0.0),
-    )?;
-
-    Ok((padded, r, left, top))
-}
-
-/// Konversi Mat RGB uint8 HxWx3 -> Vec<f32> CHW 1x3xHxW (norm 0..1)
-fn mat_rgb_to_chw_f32(img_rgb: &Mat) -> Result<Vec<f32>> {
-    let h = img_rgb.rows();
-    let w = img_rgb.cols();
-    let c = 3usize;
-    let mut out = vec![0f32; (h * w) as usize * c];
-
+    // CHW fill
+    let hw = (h * w) as usize;
     for y in 0..h {
         for x in 0..w {
-            let p: Vec3b = *img_rgb.at_2d::<Vec3b>(y, x)?;
-            // Vec3b setelah konversi adalah [R,G,B]
-            let r = p[0] as f32 / 255.0;
-            let g = p[1] as f32 / 255.0;
-            let b = p[2] as f32 / 255.0;
-
-            let idx_hw = (y * w + x) as usize;
-            out[idx_hw] = r;
-            out[idx_hw + (h * w) as usize] = g;
-            out[idx_hw + 2 * (h * w) as usize] = b;
+            // Safety: using at_2d is fine but returns Result
+            let px: Vec3b = *resized.at_2d::<Vec3b>(y, x)?;
+            let b = px[0] as f32 / 255.0;
+            let g = px[1] as f32 / 255.0;
+            let r = px[2] as f32 / 255.0;
+            let idx = (y * w + x) as usize;
+            out[idx] = r;            // C0 (R)
+            out[hw + idx] = g;       // C1 (G)
+            out[2 * hw + idx] = b;   // C2 (B)
         }
     }
     Ok(out)
 }
 
-/// ---- Struktur deteksi sederhana ----
-#[derive(Debug, Clone)]
-struct Det {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-    conf: f32,
-    cls: usize,
-}
-
-/// Coba parse output YOLO dari TensorRT.
-/// Mendukung dua pola umum:
-/// 1) [1, N, 5+C]  (tiap row: [cx,cy,w,h,obj_conf, class_scores...])
-/// 2) [1, 5+C, N]  (ultralytics sering output [B, A, N] = [1, 4+1+C, N])
-fn parse_yolo_output(
+/// ---- YOLO-ish decoder (generic). Adjust if layout berbeda) ----
+/// Asumsi output = N x (5 + num_classes) [cx,cy,w,h,obj, class...] (common for ONNX exports)
+/// Return jumlah per-kelas (by name)
+fn decode_yolo_like(
     out: &[f32],
-    shape: &[usize],
     num_classes: usize,
-    conf_thres: f32,
-    iou_thres: f32,
-) -> Result<Vec<Det>> {
-    if shape.len() < 2 {
-        bail!("Output shape tidak dikenali: {:?}", shape);
+    class_names: &[String],
+    score_thresh: f32,
+) -> HashMap<String, usize> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for name in class_names {
+        counts.entry(name.clone()).or_insert(0);
     }
 
-    // Bentukkan (attrs, num)
-    let (attrs, num) = if shape[1] == (5 + num_classes) {
-        // [1, 5+C, N]
-        ((5 + num_classes), shape[2])
-    } else if shape.last() == Some(&(5 + num_classes)) {
-        // [..., N, 5+C]
-        ((5 + num_classes), shape[shape.len() - 2])
-    } else {
-        // fallback: faktorkan dari total elemen
-        let total = out.len();
-        let ac = 5 + num_classes;
-        if total % ac != 0 {
-            bail!(
-                "Tidak bisa faktorkan output (total {} tidak kelipatan attrs {})",
-                total,
-                ac
-            );
-        }
-        (ac, total / ac)
-    };
+    let stride = 5 + num_classes;
+    if stride == 0 || out.len() % stride != 0 {
+        // Layout tidak cocok — biarkan kosong; tinggal sesuaikan decoder kalau perlu.
+        return counts;
+    }
+    let n = out.len() / stride;
 
-    // Baca sebagai daftar deteksi
-    let mut dets = Vec::with_capacity(num);
-    let stride = attrs;
-    for i in 0..num {
+    for i in 0..n {
         let base = i * stride;
-        if base + stride > out.len() { break; }
-
-        let cx = out[base + 0];
-        let cy = out[base + 1];
-        let w  = out[base + 2];
-        let h  = out[base + 3];
-        let obj_conf = out[base + 4];
-
-        // cari kelas terbaik
-        let mut best_cls = 0usize;
-        let mut best_score = 0f32;
+        let obj = out[base + 4];
+        if obj < score_thresh {
+            continue;
+        }
+        // pilih kelas dengan skor tertinggi
+        let mut best_c = 0usize;
+        let mut best_s = 0f32;
         for c in 0..num_classes {
             let s = out[base + 5 + c];
-            if s > best_score {
-                best_score = s;
-                best_cls = c;
+            if s > best_s {
+                best_s = s;
+                best_c = c;
             }
         }
-        let conf = obj_conf * best_score;
-        if conf < conf_thres { continue; }
-
-        // xywh -> xyxy pada 640x640
-        let x1 = cx - w / 2.0;
-        let y1 = cy - h / 2.0;
-        let x2 = cx + w / 2.0;
-        let y2 = cy + h / 2.0;
-
-        dets.push(Det { x1, y1, x2, y2, conf, cls: best_cls });
-    }
-
-    // NMS sederhana (greedy)
-    dets.sort_by(|a, b| b.conf.total_cmp(&a.conf));
-    let mut keep = Vec::<Det>::new();
-    'outer: for d in &dets {
-        for k in &keep {
-            if iou(d, k) > iou_thres {
-                continue 'outer;
+        let conf = obj * best_s;
+        if conf >= score_thresh {
+            if let Some(name) = class_names.get(best_c) {
+                *counts.entry(name.clone()).or_insert(0) += 1;
             }
         }
-        keep.push(d.clone());
     }
-    Ok(keep)
+    counts
 }
 
-fn iou(a: &Det, b: &Det) -> f32 {
-    let x1 = a.x1.max(b.x1);
-    let y1 = a.y1.max(b.y1);
-    let x2 = a.x2.min(b.x2);
-    let y2 = a.y2.min(b.y2);
-    let inter = ((x2 - x1).max(0.0)) * ((y2 - y1).max(0.0));
-    let area_a = (a.x2 - a.x1).max(0.0) * (a.y2 - a.y1).max(0.0);
-    let area_b = (b.x2 - b.x1).max(0.0) * (b.y2 - b.y1).max(0.0);
-    inter / (area_a + area_b - inter + 1e-6)
-}
+#[tokio::main]
+async fn main() -> Result<()> {
+    // ==== 1) Load class list ====
+    // contoh: models/classes.json berisi:
+    // ["License_Plate","cars","motorcyle","truck"]
+    let classes = load_classes("models/classes.json")?;
+    let num_classes = classes.len();
 
-/// Hitung kendaraan target dari classes.json kamu:
-/// ["License_Plate","cars","motorcyle","truck"] → hitung cars/motorcyle/truck, abaikan plate
-fn count_vehicles(dets: &[Det], classes: &[String]) -> (usize, HashMap<String, usize>) {
-    let mut per_class: HashMap<String, usize> = HashMap::new();
-    let mut total = 0usize;
+    // ==== 2) OpenCV capture ====
+    // 0 = /dev/video0; sesuaikan kalau perlu.
+    let mut cap = videoio::VideoCapture::new(0, videoio::CAP_V4L)
+        .context("open camera /dev/video0")?;
+    if !cap.is_opened()? {
+        anyhow::bail!("camera not opened");
+    }
+    // (opsional) set resolusi capture — bisa saja driver mengabaikan.
+    let _ = cap.set(videoio::CAP_PROP_FRAME_WIDTH, 1280.0);
+    let _ = cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 720.0);
 
-    for d in dets {
-        if let Some(name) = classes.get(d.cls) {
-            let lname = name.to_lowercase();
-            if lname == "cars" || lname == "motorcyle" || lname == "truck" {
-                *per_class.entry(name.clone()).or_insert(0) += 1;
-                total += 1;
-            }
+    // ==== 3) TensorRT runtime + engine ====
+    // Pastikan file sudah diexport: models/best_fp16.engine
+    let plan = fs::read("models/best_fp16.engine")
+        .context("read models/best_fp16.engine")?;
+    let rt = Runtime::new(); // tidak async, tidak Result
+    let mut engine: Engine = rt
+        .deserialize_engine(&plan)
+        .await
+        .context("deserialize TRT engine")?;
+
+    // Ambil nama input/output tensor dari engine
+    let mut input_name: Option<String> = None;
+    let mut output_name: Option<String> = None;
+    let io_count = engine.num_io_tensors();
+    for i in 0..io_count {
+        let name = engine.io_tensor_name(i);
+        match engine.tensor_io_mode(&name) {
+            TensorIoMode::Input => input_name = Some(name),
+            TensorIoMode::Output => output_name = Some(name),
         }
     }
-    (total, per_class)
+    let input_name = input_name.context("no input tensor in engine")?;
+    let output_name = output_name.context("no output tensor in engine")?;
+
+    // Ambil shape untuk alokasi buffer
+    let in_shape = engine.tensor_shape(&input_name);
+    let out_shape = engine.tensor_shape(&output_name);
+    let in_elems: usize = in_shape.iter().product();
+    let out_elems: usize = out_shape.iter().product();
+
+    // ==== 4) Eksekusi context + stream ====
+    // Pakai &mut engine supaya engine tetap bisa dipakai kalau perlu.
+    let mut ctx = ExecutionContext::new(&mut engine)
+        .await
+        .context("create execution context")?;
+    let stream = Stream::new().await.context("create CUDA stream")?;
+
+    // ==== 5) Pre-allocate pinned host & device buffers ====
+    // host pinned (lebih cepat untuk copy)
+    let mut h_in = HostBuffer::<f32>::new(in_elems).await;
+    let mut h_out = HostBuffer::<f32>::new(out_elems).await;
+    // device
+    let mut d_in = DeviceBuffer::<f32>::new(in_elems, &stream).await;
+    let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream).await;
+
+    println!(
+        "Engine IO:\n  input  '{}' shape {:?}\n  output '{}' shape {:?}",
+        input_name, in_shape, output_name, out_shape
+    );
+
+    // ==== 6) Loop capture → preprocess → infer → copy back → (decode & count) ====
+    // (demo: proses 200 frame; ubah sesuai kebutuhan)
+    let mut frame = Mat::default();
+    for _ in 0..200 {
+        cap.read(&mut frame)
+            .context("camera read")?;
+        if frame.empty()? {
+            continue;
+        }
+
+        // preprocess (BGR u8 -> CHW f32 [0,1] 640x640)
+        let input_tensor = mat_to_chw_f32_bgr(&frame)?;
+
+        // salin ke host pinned, lalu H->D
+        h_in.copy_from_slice(&input_tensor);
+        h_in.copy_to(&mut d_in, &stream)
+            .await
+            .context("H->D copy input")?;
+
+        // siapkan io map (nama tensor -> device buffer)
+        let mut io: HashMap<&str, &mut DeviceBuffer<f32>> = HashMap::new();
+        io.insert(&input_name, &mut d_in);
+        io.insert(&output_name, &mut d_out);
+
+        // enqueue inference
+        ctx.enqueue(&mut io, &stream)
+            .await
+            .context("enqueue inference")?;
+
+        // D->H output
+        h_out.copy_from(&d_out, &stream)
+            .await
+            .context("D->H copy output")?;
+        // optional: sync stream (HostBuffer::copy_from sudah implicit sync, tapi aman)
+        stream.synchronize().await.ok();
+
+        // ambil Vec untuk diproses di CPU
+        let out_host: Vec<f32> = h_out.to_vec();
+
+        // ---- decode & contoh hitung kendaraan (abaikan 'License_Plate') ----
+        let counts = decode_yolo_like(&out_host, num_classes, &classes, 0.25);
+        let fossil_keys = ["cars", "motorcyle", "truck"];
+        let mut total = 0usize;
+        for k in fossil_keys {
+            if let Some(v) = counts.get(k) {
+                total += *v;
+            }
+        }
+        println!("Count per class: {:?} | total (fossil-ish): {}", counts, total);
+    }
+
+    Ok(())
 }
