@@ -471,7 +471,9 @@ fn main() -> Result<()> {
             let size = (pv.w * pv.h * 3) as usize;
             let mut gstbuf = gst::Buffer::with_size(size).expect("alloc gst buffer");
             {
-                let mut mapw = gstbuf.map_writable().expect("map write");
+                // <- WAJIB: ambil BufferRef yang bisa ditulis
+                let bufref = gstbuf.get_mut().expect("get_mut failed");
+                let mut mapw = bufref.map_writable().expect("map_writable failed");
                 mapw.as_mut_slice().copy_from_slice(&bgr_draw);
             }
             let _ = pv.appsrc.push_buffer(gstbuf);
