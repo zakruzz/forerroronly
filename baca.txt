@@ -820,3 +820,52 @@ help: consider borrowing here
 For more information about this error, try `rustc --explain E0277`.
 error: could not compile `gen_npy` (bin "gen_npy") due to 1 previous error
 
+ahmadradhy@ubuntu:~/Image_processing$ cargo build --release
+   Compiling image_processor v0.1.0 (/home/ahmadradhy/Image_processing)
+warning: unused import: `MatTrait`
+ --> src/main.rs:3:23
+  |
+3 |     core::{self, Mat, MatTrait, MatTraitConst, MatTraitConstManual, Scala...
+  |                       ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0308]: mismatched types
+   --> src/main.rs:184:35
+    |
+184 |     let cand1 = decode_matrix_cxn(&m_cxn, c, n, conf, &class_names, ori...
+    |                 ----------------- ^^^^^^ expected `&Mat`, found `&BoxedRef<'_, Mat>`
+    |                 |
+    |                 arguments to this function are incorrect
+    |
+    = note: expected reference `&Mat`
+               found reference `&BoxedRef<'_, Mat>`
+note: function defined here
+   --> src/main.rs:70:4
+    |
+ 70 | fn decode_matrix_cxn(
+    |    ^^^^^^^^^^^^^^^^^
+ 71 |     m:&Mat, c:usize, n:usize, conf:f32, class_names:&[String],
+    |     ------
+
+warning: unused variable: `class_names`
+  --> src/main.rs:71:41
+   |
+71 |     m:&Mat, c:usize, n:usize, conf:f32, class_names:&[String],
+   |                                         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_class_names`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+error[E0515]: cannot return value referencing local variable `rmat`
+  --> src/main.rs:77:9
+   |
+77 |         Ok(rmat.data_typed()?)
+   |         ^^^----^^^^^^^^^^^^^^^
+   |         |  |
+   |         |  `rmat` is borrowed here
+   |         returns a value referencing data owned by the current function
+
+Some errors have detailed explanations: E0308, E0515.
+For more information about an error, try `rustc --explain E0308`.
+warning: `image_processor` (bin "image_processor") generated 2 warnings
+error: could not compile `image_processor` (bin "image_processor") due to 2 previous errors; 2 warnings emitted
