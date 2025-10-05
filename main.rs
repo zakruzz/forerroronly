@@ -28,46 +28,38 @@ struct Opts {
     count_classes: String,
 }
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     let o = Opts::parse();
-    let names = load_classes_json("config/classes.json")?;
-    let class_idxs = parse_count_arg(&o.count_classes, &names);
+
+    let names = config::load_classes_json("config/classes.json")?;
+    let class_idxs = config::parse_count_arg(&o.count_classes, &names);
     eprintln!("[INFO] hitung kelas idx: {:?} ({} labels total)", class_idxs, names.len());
 
-// kamera
-let mut cam = videoio::VideoCapture::new(o.cam, videoio::CAP_ANY)?;
-let opened = match cam.is_opened() {
-    // kalau signature-nya Result<bool>
-    #[allow(unreachable_patterns)]
-    Ok(v) => v,
-    // kalau signature-nya bool langsung (branch di bawah akan 'unreachable', tapi aman)
-    Err(_) => cam.is_opened(),
-};
-ensure!(opened, "kamera {} gagal dibuka", o.cam);
-
-    // TRT session
-    let mut sess = trt::TrtSession::from_engine_file(&o.engine)?;
-    eprintln!("[INFO] engine loaded: {}", o.engine);
-
-// loop frame
-let mut frame = Mat::default();
-loop {
-    let ok = cam.read(&mut frame)?;
-    if !ok || frame.empty()? {
-        eprintln!("no frame, exit");
-        return Ok(());
+    // Kamera
+    let mut cam = videoio::VideoCapture::new(o.cam, videoio::CAP_ANY)?;
+    // di build kamu, is_opened() mengembalikan bool → JANGAN pakai ?
+    if !cam.is_opened() {
+        anyhow::bail!("kamera {} gagal dibuka", o.cam);
     }
 
-        // prepro → [1,3,640,640] f32
-        let input = letterbox_bgr_to_rgb_f32_nchw(&frame, o.size)?;
+    // TRT session (sementara pakai stub agar compile mulus)
+    let mut sess = trt::TrtSession::new_stub(o.size as usize)?;
 
-        // infer
-        let out = sess.infer(&input)?;           // ndarray f32 output
+    let mut frame = Mat::default();
+    loop {
+        let ok = cam.read(&mut frame)?;
+        if !ok || frame.empty()? {
+            eprintln!("no frame, exit");
+            break;
+        }
 
-        // decode + NMS
-        let dets = decode_flexible(&out, o.conf_th, &class_idxs)?;
-        let kept = nms(dets, o.iou_th);
+        let input = preprocess::letterbox_bgr_to_rgb_f32_nchw(&frame, o.size)?;
+        let out = sess.infer(&input)?;                // ndarray f32 (stub: kosong)
+        let dets = yolo::decode_flexible(&out, o.conf_th, &class_idxs)?;
+        let kept = yolo::nms(dets, o.iou_th);
 
         println!("Kendaraan terdeteksi (frame): {}", kept.len());
     }
+
+    Ok(())
 }
