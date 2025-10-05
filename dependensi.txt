@@ -7,3 +7,48 @@ opencv = "0.96"
 async-tensorrt = "0.9"
 async-cuda = "0.6"
 
+
+
+# TensorRT libs ada?
+ls /usr/lib/aarch64-linux-gnu/libnvinfer.so* | head
+
+# CUDA runtime ada?
+ls /usr/local/cuda/lib64/libcudart.so*
+
+# OpenCV (dari JetPack) ada?
+pkg-config --modversion opencv4
+
+
+
+kalau gak ketemu :
+sudo apt-get update
+sudo apt-get install -y libopencv-dev pkg-config
+
+
+cek kamera :
+# lihat device
+v4l2-ctl --list-devices
+# sanity-check streaming
+ffplay -f video4linux2 -i /dev/video0   # (Ctrl+C untuk stop)
+
+
+kalau permition ditolak :
+sudo usermod -aG video $USER
+# lalu logout/login ulang (atau sementara: sudo -E cargo run ...)
+
+
+
+set ld library path :
+export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/tegra:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+
+cd ~/tugasakhir-fairuz/veh-counter-rs
+
+# build cepat (optimasi)
+cargo build --release
+
+# jalankan
+./target/release/veh-counter-rs
+
+
+
