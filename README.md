@@ -255,6 +255,18 @@ gst-launch-1.0 --version 2>/dev/null || echo "  (info) gstreamer-runtime tidak t
 
 echo "[LD paths]"
 echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=models/best.onnx \
+  --saveEngine=models/best_fp16.engine \
+  --explicitBatch \
+  --fp16 \
+  --workspace=2048 \
+  --minShapes=images:1x3x640x640 \
+  --optShapes=images:1x3x640x640 \
+  --maxShapes=images:1x3x640x640 \
+  --buildOnly
+
 echo "  Cek libnvinfer:"
 ldconfig -p | grep -i nvinfer || echo "  (info) ldconfig tidak menemukan libnvinfer, pastikan JetPack/TensorRT sudah terpasang"
 
