@@ -19,6 +19,7 @@ fn load_classes(path: &str) -> Result<Vec<String>> {
 }
 
 fn mat_to_chw_f32_bgr(mat_bgr_u8: &Mat) -> Result<Vec<f32>> {
+    // resize ke 640x640
     let mut resized = Mat::default();
     imgproc::resize(
         mat_bgr_u8,
@@ -29,6 +30,7 @@ fn mat_to_chw_f32_bgr(mat_bgr_u8: &Mat) -> Result<Vec<f32>> {
         imgproc::INTER_LINEAR,
     )?;
 
+    // konversi ke CHW f32 [0..1], urutan R,G,B
     let size = resized.size()?;
     let (h, w) = (size.height, size.width);
     let mut out = vec![0f32; (3 * h * w) as usize];
@@ -37,7 +39,6 @@ fn mat_to_chw_f32_bgr(mat_bgr_u8: &Mat) -> Result<Vec<f32>> {
     for y in 0..h {
         for x in 0..w {
             let px: Vec3b = *resized.at_2d::<Vec3b>(y, x)?;
-            // BGR -> CHW (R,G,B) normalized
             let b = px[0] as f32 / 255.0;
             let g = px[1] as f32 / 255.0;
             let r = px[2] as f32 / 255.0;
@@ -60,7 +61,7 @@ fn decode_yolo_like(
     let mut counts: HashMap<String, usize> = HashMap::new();
     let stride = 5 + num_classes;
     if stride == 0 || out.len() % stride != 0 {
-        return counts; // layout tak cocok, biarkan kosong
+        return counts; // layout tidak cocok
     }
     let n = out.len() / stride;
 
@@ -70,7 +71,6 @@ fn decode_yolo_like(
         if obj < score_thresh {
             continue;
         }
-        // pilih kelas terbaik
         let mut best_c = 0usize;
         let mut best_s = 0f32;
         for c in 0..num_classes {
@@ -92,7 +92,7 @@ fn decode_yolo_like(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1) classes
+    // 1) kelas (contoh: ["License_Plate","cars","motorcyle","truck"])
     let classes = load_classes("models/classes.json")?;
     let num_classes = classes.len();
 
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
         .await
         .context("deserialize TRT engine")?;
 
-    // cari nama IO
+    // nama IO
     let mut input_name: Option<String> = None;
     let mut output_name: Option<String> = None;
     for i in 0..engine.num_io_tensors() {
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
                     output_name = Some(name);
                 }
             }
-            TensorIoMode::None => { /* abaikan */ }
+            _ => { /* abaikan (None / lainnya) */ }
         }
     }
     let input_name = input_name.context("no input tensor in engine")?;
@@ -171,7 +171,7 @@ async fn main() -> Result<()> {
         h_out.copy_from(&d_out, &stream).await.context("D->H output")?;
         let out_host: Vec<f32> = h_out.to_vec();
 
-        // hitung kendaraan: cars / motorcyle / truck (abaikan License_Plate)
+        // hitung kendaraan target: cars / motorcyle / truck (abaikan License_Plate)
         let counts = decode_yolo_like(&out_host, num_classes, &classes, 0.25);
         let mut total = 0usize;
         for k in ["cars", "motorcyle", "truck"] {
