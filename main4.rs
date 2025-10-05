@@ -43,12 +43,10 @@ fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let dx = (dst - nw) / 2;
     let dy = (dst - nh) / 2;
 
-    // ambil ROI secara mutable, lalu copy_to
+    // ROI tanpa unsafe, dan target bertipe Mat (bukan BoxedRef)
     let roi = Rect::new(dx, dy, nw, nh);
-    {
-        let mut target = unsafe { Mat::roi_mut(&mut canvas, roi)? };
-        resized.copy_to(&mut target)?;
-    }
+    let mut target = core::Mat::roi(&mut canvas, roi)?;
+    resized.copy_to(&mut target)?;
 
     Ok((canvas, s, dx, dy))
 }
@@ -100,12 +98,8 @@ fn decode_yolov8_4plusnc(
     // cek logits ↔ prob
     let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
     for &v in flat {
-        if v < mn {
-            mn = v
-        }
-        if v > mx {
-            mx = v
-        }
+        if v < mn { mn = v }
+        if v > mx { mx = v }
     }
     let need_sigmoid = mn < -0.01 || mx > 1.01;
     let sig = |x: f32| 1.0 / (1.0 + (-x).exp());
@@ -116,58 +110,39 @@ fn decode_yolov8_4plusnc(
     for i in 0..n {
         let mut cx = flat[0 * stride + i].clamp(0.0, 1.0);
         let mut cy = flat[1 * stride + i].clamp(0.0, 1.0);
-        let mut w = flat[2 * stride + i].clamp(0.0, 1.0);
-        let mut h = flat[3 * stride + i].clamp(0.0, 1.0);
+        let mut w  = flat[2 * stride + i].clamp(0.0, 1.0);
+        let mut h  = flat[3 * stride + i].clamp(0.0, 1.0);
 
         // kelas terbaik
         let (mut best_c, mut best_p) = (0usize, f32::MIN);
         for cc in 0..nc {
             let mut p = flat[(4 + cc) * stride + i];
-            if need_sigmoid {
-                p = sig(p);
-            }
-            if p > best_p {
-                best_p = p;
-                best_c = cc;
-            }
+            if need_sigmoid { p = sig(p); }
+            if p > best_p { best_p = p; best_c = cc; }
         }
-        if best_p < conf {
-            continue;
-        }
+        if best_p < conf { continue; }
 
         if filter_vehicle {
             let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
-            if !is_vehicle(cname) {
-                continue;
-            }
+            if !is_vehicle(cname) { continue; }
         }
 
         // balik koordinat dari kanvas ke gambar asli
-        cx *= dst as f32;
-        cy *= dst as f32;
-        w *= dst as f32;
-        h *= dst as f32;
+        cx *= dst as f32; cy *= dst as f32; w *= dst as f32; h *= dst as f32;
         let (mut x1, mut y1, mut x2, mut y2) = (cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0);
 
-        let fx = (x1 - pad_x as f32).max(0.0);
-        let fy = (y1 - pad_y as f32).max(0.0);
+        let fx  = (x1 - pad_x as f32).max(0.0);
+        let fy  = (y1 - pad_y as f32).max(0.0);
         let fx2 = (x2 - pad_x as f32).max(0.0);
         let fy2 = (y2 - pad_y as f32).max(0.0);
         let inv = 1.0 / scale;
 
-        x1 = (fx * inv).clamp(0.0, (orig_w - 1) as f32);
-        y1 = (fy * inv).clamp(0.0, (orig_h - 1) as f32);
+        x1 = (fx  * inv).clamp(0.0, (orig_w - 1) as f32);
+        y1 = (fy  * inv).clamp(0.0, (orig_h - 1) as f32);
         x2 = (fx2 * inv).clamp(0.0, (orig_w - 1) as f32);
         y2 = (fy2 * inv).clamp(0.0, (orig_h - 1) as f32);
 
-        out.push(Det {
-            x1,
-            y1,
-            x2,
-            y2,
-            score: best_p,
-            cls: best_c,
-        });
+        out.push(Det { x1, y1, x2, y2, score: best_p, cls: best_c });
     }
 
     Ok(out)
@@ -211,39 +186,23 @@ fn main() -> Result<()> {
     let classes_path = PathBuf::from(&a[2]);
     let image_path = PathBuf::from(&a[3]);
     let imgsz: i32 = a.get(4).and_then(|s| s.parse().ok()).unwrap_or(640);
-    let conf: f32 = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.25);
+    let conf: f32  = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.25);
     let iou_t: f32 = a.get(6).and_then(|s| s.parse().ok()).unwrap_or(0.45);
-    let filter_vehicle: bool = a
-        .get(7)
-        .map(|s| s == "1" || s.to_lowercase() == "true")
-        .unwrap_or(true);
-    let save = PathBuf::from(
-        a.get(8)
-            .cloned()
-            .unwrap_or_else(|| "result.jpg".to_string()),
-    );
+    let filter_vehicle: bool = a.get(7).map(|s| s=="1" || s.to_lowercase()=="true").unwrap_or(true);
+    let save = PathBuf::from(a.get(8).cloned().unwrap_or_else(|| "result.jpg".to_string()));
 
     // classes.json
     let txt = fs::read_to_string(&classes_path).context("baca classes.json")?;
     let j: Value = serde_json::from_str(&txt).context("parse classes.json")?;
-    let arr = j
-        .as_array()
-        .ok_or_else(|| anyhow!("classes.json harus array string"))?;
-    let class_names: Vec<String> = arr
-        .iter()
-        .map(|v| v.as_str().unwrap_or("").to_string())
-        .collect();
-    if class_names.is_empty() {
-        bail!("classes.json kosong");
-    }
+    let arr = j.as_array().ok_or_else(|| anyhow!("classes.json harus array string"))?;
+    let class_names: Vec<String> = arr.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect();
+    if class_names.is_empty() { bail!("classes.json kosong"); }
     let c = 4 + class_names.len();
 
     // gambar input
     let mut img = imgcodecs::imread(image_path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)
         .with_context(|| format!("open {:?}", image_path))?;
-    if img.empty() {
-        bail!("gagal baca gambar");
-    }
+    if img.empty() { bail!("gagal baca gambar"); }
     let orig_w = img.cols();
     let orig_h = img.rows();
 
@@ -252,20 +211,15 @@ fn main() -> Result<()> {
 
     // blob NCHW float32 1/255, swapRB = true
     let mut blob = dnn::blob_from_image(
-        &letter,
-        1.0 / 255.0,
-        Size::new(imgsz, imgsz),
-        Scalar::default(),
-        true,
-        false,
-        core::CV_32F,
+        &letter, 1.0/255.0, Size::new(imgsz, imgsz),
+        Scalar::default(), true, false, core::CV_32F
     )?;
 
-    // load model
-    let mut net =
-        dnn::read_net_from_onnx(onnx.to_str().unwrap()).with_context(|| format!("read onnx {:?}", onnx))?;
+    // load onnx
+    let mut net = dnn::read_net_from_onnx(onnx.to_str().unwrap())
+        .with_context(|| format!("read onnx {:?}", onnx))?;
 
-    // prefer CUDA (kalau tersedia), else CPU
+    // prefer CUDA (kalau ada), else CPU
     let mut used_cuda = false;
     if net.set_preferable_backend(dnn::DNN_BACKEND_CUDA).is_ok()
         && net.set_preferable_target(dnn::DNN_TARGET_CUDA_FP16).is_ok()
@@ -282,40 +236,28 @@ fn main() -> Result<()> {
     let names = net.get_unconnected_out_layers_names()?;
     let mut outs: Vector<Mat> = Vector::new();
     net.forward(&mut outs, &names)?;
-    if outs.len() == 0 {
-        bail!("tidak ada output dari model");
-    }
-    let out = outs.get(0)?; // ambil tensor pertama
-    let total = out.total()? as usize;
+    if outs.len() == 0 { bail!("tidak ada output dari model"); }
+    let out = outs.get(0)?; // tensor pertama
+
+    // FIX: di crate-mu total() mengembalikan usize (bukan Result)
+    let total = out.total() as usize;
     if total % c != 0 {
         bail!("total elemen output {} tidak habis dibagi C={}", total, c);
     }
     let n = total / c;
 
+    // ambil slice f32; di beberapa versi perlu unsafe
     let flat: &[f32] = unsafe { out.data_typed()? };
 
-    // decode dan nms
+    // decode + nms
     let mut dets = decode_yolov8_4plusnc(
-        flat,
-        c,
-        n,
-        conf,
-        &class_names,
-        orig_w,
-        orig_h,
-        scale,
-        pad_x,
-        pad_y,
-        imgsz,
+        flat, c, n, conf, &class_names,
+        orig_w, orig_h, scale, pad_x, pad_y, imgsz,
         filter_vehicle,
     )?;
     dets = nms(dets, iou_t);
 
-    println!(
-        "count: {}  (backend: {})",
-        dets.len(),
-        if used_cuda { "CUDA" } else { "CPU" }
-    );
+    println!("count: {}  (backend: {})", dets.len(), if used_cuda {"CUDA"} else {"CPU"});
 
     // gambar & simpan
     for d in &dets {
