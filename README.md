@@ -1623,3 +1623,222 @@ error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 1 previo
 	"endColumn": 43,
 	"origin": "extHost1"
 }]
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/veh-counter-rs$ cargo build
+   Compiling veh-counter-rs v0.1.0 (/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs)
+error[E0282]: type annotations needed for `Vec<_>`
+  --> src/main.rs:93:9
+   |
+93 |     let mut keep=Vec::new();
+   |         ^^^^^^^^
+94 |     'o: for d in dets.into_iter(){
+95 |         for k in &keep{ if d.cls==k.cls && iou(&d,k)>iou_thr {continue '...
+   |                                   ----- type must be known at this point
+   |
+help: consider giving `keep` an explicit type, where the type for type parameter `T` is specified
+   |
+93 |     let mut keep: Vec<T>=Vec::new();
+   |                 ++++++++
+
+warning: unused variable: `shp_s`
+   --> src/main.rs:281:17
+    |
+281 |             let shp_s = engine.tensor_shape(&s); // [1,max_det,1]
+    |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_shp_s`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `shp_c`
+   --> src/main.rs:282:17
+    |
+282 |             let shp_c = engine.tensor_shape(&c); // [1,max_det,1]
+    |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_shp_c`
+
+warning: unused variable: `fps_counter`
+   --> src/main.rs:306:13
+    |
+306 |     let mut fps_counter = 0u32;
+    |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fps_counter`
+
+warning: unused variable: `fps_last`
+   --> src/main.rs:307:13
+    |
+307 |     let mut fps_last = Instant::now();
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fps_last`
+
+warning: unused variable: `fps`
+   --> src/main.rs:308:13
+    |
+308 |     let mut fps = 0.0f32;
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_fps`
+
+warning: variable does not need to be mutable
+   --> src/main.rs:306:9
+    |
+306 |     let mut fps_counter = 0u32;
+    |         ----^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/main.rs:307:9
+    |
+307 |     let mut fps_last = Instant::now();
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/main.rs:308:9
+    |
+308 |     let mut fps = 0.0f32;
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:273:25
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+273 |         let out_shape = engine.tensor_shape(&outputs[0]);
+    |                         ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:279:58
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+279 |         if let Some((b,s,c)) = pick_efficientnms_outputs(&engine, &outp...
+    |                                                          ^^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:280:25
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+280 |             let shp_b = engine.tensor_shape(&b); // [1,max_det,4] biasanya
+    |                         ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:281:25
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+281 |             let shp_s = engine.tensor_shape(&s); // [1,max_det,1]
+    |                         ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:282:25
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+282 |             let shp_c = engine.tensor_shape(&c); // [1,max_det,1]
+    |                         ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:296:29
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+296 |             let out_shape = engine.tensor_shape(&outputs[0]);
+    |                             ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:329:53
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+329 |             let (b,s,c) = pick_efficientnms_outputs(&engine, &outputs)....
+    |                                                     ^^^^^^^ immutable borrow occurs here
+...
+336 |         ctx.enqueue(&mut io_map, &stream).await.context("enqueue")?;
+    |         --- mutable borrow later used here
+
+error[E0597]: `b` does not live long enough
+   --> src/main.rs:330:27
+    |
+329 | ...       let (b,s,c) = pick_efficientnms_outputs(&engine, &outputs).un...
+    |                - binding `b` declared here
+330 | ...       io_map.insert(&b, d_boxes.as_mut().unwrap());
+    |                         ^^ borrowed value does not live long enough
+...
+333 | ...   }
+    |       - `b` dropped here while still borrowed
+...
+336 | ...   ctx.enqueue(&mut io_map, &stream).await.context("enqueue")?;
+    |                   ----------- borrow later used here
+
+error[E0597]: `s` does not live long enough
+   --> src/main.rs:331:27
+    |
+329 | ...       let (b,s,c) = pick_efficientnms_outputs(&engine, &outputs).un...
+    |                  - binding `s` declared here
+330 | ...       io_map.insert(&b, d_boxes.as_mut().unwrap());
+331 | ...       io_map.insert(&s, d_scores.as_mut().unwrap());
+    |                         ^^ borrowed value does not live long enough
+332 | ...       io_map.insert(&c, d_classes.as_mut().unwrap());
+333 | ...   }
+    |       - `s` dropped here while still borrowed
+...
+336 | ...   ctx.enqueue(&mut io_map, &stream).await.context("enqueue")?;
+    |                   ----------- borrow later used here
+
+error[E0597]: `c` does not live long enough
+   --> src/main.rs:332:27
+    |
+329 | ...       let (b,s,c) = pick_efficientnms_outputs(&engine, &outputs).un...
+    |                    - binding `c` declared here
+...
+332 | ...       io_map.insert(&c, d_classes.as_mut().unwrap());
+    |                         ^^ borrowed value does not live long enough
+333 | ...   }
+    |       - `c` dropped here while still borrowed
+...
+336 | ...   ctx.enqueue(&mut io_map, &stream).await.context("enqueue")?;
+    |                   ----------- borrow later used here
+
+error[E0502]: cannot borrow `engine` as immutable because it is also borrowed as mutable
+   --> src/main.rs:343:29
+    |
+252 |     let mut ctx = ExecutionContext::new(&mut engine).await.context("cre...
+    |                                         ----------- mutable borrow occurs here
+...
+343 |             let out_shape = engine.tensor_shape(&outputs[0]);
+    |                             ^^^^^^ immutable borrow occurs here
+...
+419 | }
+    | - mutable borrow might be used here, when `ctx` is dropped and runs the destructor for type `async_tensorrt::ExecutionContext<'_>`
+
+Some errors have detailed explanations: E0282, E0502, E0597.
+For more information about an error, try `rustc --explain E0282`.
+warning: `veh-counter-rs` (bin "veh-counter-rs") generated 8 warnings
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previous errors; 8 warnings emitted
