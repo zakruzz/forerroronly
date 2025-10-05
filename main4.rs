@@ -9,26 +9,33 @@ use std::{env, fs, path::PathBuf};
 #[derive(Clone, Debug)]
 struct Det { x1:f32, y1:f32, x2:f32, y2:f32, score:f32, cls:usize }
 
-fn is_vehicle_label(label:&str)->bool{
-    // pakai nama kelas dari classes.json kamu apa adanya
+fn is_vehicle_label(label:&str)->bool {
     matches!(label, "cars" | "motorcyle" | "truck")
 }
 
-/// Letterbox (tanpa ROI)
+/// Letterbox tanpa ROI: resize + padding ke kanvas dst×dst
 fn letterbox_bgr(img:&Mat, dst:i32)->Result<(Mat, f32, i32, i32)>{
-    let w=img.cols(); let h=img.rows();
-    let s=(dst as f32 / w as f32).min(dst as f32 / h as f32);
-    let nw=((w as f32)*s).round() as i32; let nh=((h as f32)*s).round() as i32;
+    let w = img.cols();
+    let h = img.rows();
+    let s = (dst as f32 / w as f32).min(dst as f32 / h as f32);
+    let nw = ((w as f32) * s).round() as i32;
+    let nh = ((h as f32) * s).round() as i32;
 
-    let mut resized=Mat::default();
-    imgproc::resize(img, &mut resized, Size::new(nw,nh), 0.0,0.0, imgproc::INTER_LINEAR)?;
+    let mut resized = Mat::default();
+    imgproc::resize(img, &mut resized, Size::new(nw, nh), 0.0, 0.0, imgproc::INTER_LINEAR)?;
 
-    let left=(dst-nw)/2; let top=(dst-nh)/2;
-    let right=dst-nw-left; let bottom=dst-nh-top;
+    let left = (dst - nw)/2;
+    let top  = (dst - nh)/2;
+    let right = dst - nw - left;
+    let bottom = dst - nh - top;
 
-    let mut canvas=Mat::default();
-    core::copy_make_border(&resized, &mut canvas, top,bottom,left,right,
-        core::BORDER_CONSTANT, Scalar::new(114.0,114.0,114.0,0.0))?;
+    let mut canvas = Mat::default();
+    core::copy_make_border(
+        &resized, &mut canvas,
+        top, bottom, left, right,
+        core::BORDER_CONSTANT,
+        Scalar::new(114.0,114.0,114.0,0.0),
+    )?;
     Ok((canvas, s, left, top))
 }
 
@@ -49,76 +56,7 @@ fn nms(mut v:Vec<Det>, thr:f32)->Vec<Det>{
     }
     keep
 }
-
-/// Decoder generik: get(ch,i) → nilai channel `ch` di anchor `i`.
-/// `xyxy_mode`=true bila bbox adalah [x1,y1,x2,y2], else [cx,cy,w,h].
-fn decode_generic<F>(
-    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
-    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, dst:i32,
-    xyxy_mode:bool
-)->Result<Vec<Det>>
-where F: Fn(usize,usize)->f32 {
-    let nc=c.checked_sub(4).ok_or_else(||anyhow!("C<4"))?;
-    if nc!=class_names.len(){ bail!("C-4={} != classes.json={}", nc, class_names.len()); }
-
-    // deteksi logits vs prob
-    let mut mn=f32::INFINITY; let mut mx=f32::NEG_INFINITY;
-    for i in 0..n { for ch in 4..c { let v=get(ch,i); if v<mn{mn=v}; if v>mx{mx=v}; } }
-    let need_sigmoid= mn < -0.01 || mx > 1.01;
-    let sig = |x:f32| 1.0/(1.0+(-x).exp());
-
-    // deteksi skala bbox: normalized (<=1.0) atau pixel (>1.5)
-    let mut bbox_max=0.0f32;
-    for i in 0..n { for ch in 0..4 { bbox_max=bbox_max.max(get(ch,i).abs()); } }
-    let bbox_in_pixels = bbox_max > 1.5;
-
-    let mut out=Vec::new();
-    for i in 0..n {
-        let (mut x1,mut y1,mut x2,mut y2);
-
-        if xyxy_mode {
-            let mut ax=get(0,i); let mut ay=get(1,i);
-            let mut bx=get(2,i); let mut by=get(3,i);
-            if !bbox_in_pixels { ax*=dst as f32; ay*=dst as f32; bx*=dst as f32; by*=dst as f32; }
-            x1=ax; y1=ay; x2=bx; y2=by;
-        } else {
-            let mut cx=get(0,i); let mut cy=get(1,i);
-            let mut w =get(2,i); let mut h =get(3,i);
-            if !bbox_in_pixels { cx*=dst as f32; cy*=dst as f32; w*=dst as f32; h*=dst as f32; }
-            x1=cx - w/2.0; y1=cy - h/2.0; x2=cx + w/2.0; y2=cy + h/2.0;
-        }
-
-        // kelas terbaik
-        let (mut best_c,mut best_p)=(0usize, f32::MIN);
-        for cc in 0..nc {
-            let mut p=get(4+cc, i);
-            if need_sigmoid { p=sig(p); }
-            if p>best_p { best_p=p; best_c=cc; }
-        }
-        if best_p<conf { continue; }
-
-        // pindah dari kanvas ke koordinat gambar asli
-        let fx =(x1 - pad_x as f32).max(0.0);
-        let fy =(y1 - pad_y as f32).max(0.0);
-        let fx2=(x2 - pad_x as f32).max(0.0);
-        let fy2=(y2 - pad_y as f32).max(0.0);
-        let inv=1.0/scale;
-
-        x1=(fx *inv).clamp(0.0,(orig_w-1) as f32);
-        y1=(fy *inv).clamp(0.0,(orig_h-1) as f32);
-        x2=(fx2*inv).clamp(0.0,(orig_w-1) as f32);
-        y2=(fy2*inv).clamp(0.0,(orig_h-1) as f32);
-
-        // buang box degenerate
-        if (x2-x1) >= 2.0 && (y2-y1) >= 2.0 {
-            out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c});
-        }
-    }
-    Ok(out)
-}
-
 fn quality_score(d:&[Det], w:i32,h:i32)->(usize,f32){
-    // hitung berapa yg valid & skor rata-rata (untuk tie-break)
     let mut valid=0usize; let mut sum=0f32;
     for b in d {
         if b.x1>=0.0 && b.y1>=0.0 && b.x2<=w as f32 && b.y2<=h as f32 &&
@@ -142,10 +80,10 @@ fn draw_box(img:&mut Mat, d:&Det, label:&str)->Result<()>{
 }
 
 fn main()->Result<()>{
-    // cargo run --release -- <best.onnx> <classes.json> <image> [imgsz=640] [conf=0.25] [iou=0.45] [filter_vehicle=1] [save=result.jpg]
+    // cargo run --release -- <best.onnx> <classes.json> <image> [imgsz=640] [conf=0.25] [iou=0.45] [save=result.jpg]
     let a:Vec<String>=env::args().collect();
     if a.len()<4{
-        eprintln!("Usage: {} <best.onnx> <classes.json> <image> [imgsz=640] [conf=0.25] [iou=0.45] [filter_vehicle=1] [save=result.jpg]", a[0]);
+        eprintln!("Usage: {} <best.onnx> <classes.json> <image> [imgsz=640] [conf=0.25] [iou=0.45] [save=result.jpg]", a[0]);
         std::process::exit(1);
     }
     let onnx=PathBuf::from(&a[1]);
@@ -154,18 +92,17 @@ fn main()->Result<()>{
     let imgsz:i32=a.get(4).and_then(|s|s.parse().ok()).unwrap_or(640);
     let conf:f32=a.get(5).and_then(|s|s.parse().ok()).unwrap_or(0.25);
     let iou_t:f32=a.get(6).and_then(|s|s.parse().ok()).unwrap_or(0.45);
-    let filter_vehicle:bool=a.get(7).map(|s| s=="1" || s.to_lowercase()=="true").unwrap_or(true);
-    let save=PathBuf::from(a.get(8).cloned().unwrap_or_else(||"result.jpg".to_string()));
+    let save=PathBuf::from(a.get(7).cloned().unwrap_or_else(||"result.jpg".to_string()));
 
-    // classes.json → nama kelas (harus 4)
+    // classes.json (harus 4: ["License_Plate","cars","motorcyle","truck"])
     let txt=fs::read_to_string(&classes_path).context("read classes.json")?;
     let j:Value=serde_json::from_str(&txt).context("parse classes.json")?;
     let arr=j.as_array().ok_or_else(||anyhow!("classes.json harus array string"))?;
     let class_names:Vec<String>=arr.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect();
-    if class_names.len()!=4 { bail!("classes.json harus 4 item (License_Plate,cars,motorcyle,truck)"); }
-    let c_expect=4 + class_names.len(); // 8 sesuai outputmu
+    if class_names.len()!=4 { bail!("classes.json harus berisi 4 nama kelas persis (License_Plate, cars, motorcyle, truck)"); }
+    let c_expect = 4 + class_names.len(); // 8
 
-    // gambar
+    // baca gambar
     let mut img=imgcodecs::imread(image_path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)
         .with_context(||format!("open {:?}", image_path))?;
     if img.empty(){ bail!("gagal baca gambar"); }
@@ -176,8 +113,9 @@ fn main()->Result<()>{
     let blob=dnn::blob_from_image(&letter, 1.0/255.0, Size::new(imgsz,imgsz),
                                   Scalar::default(), true,false, core::CV_32F)?;
 
-    // load onnx
-    let mut net=dnn::read_net_from_onnx(onnx.to_str().unwrap()).with_context(||format!("read onnx {:?}", onnx))?;
+    // load model
+    let mut net=dnn::read_net_from_onnx(onnx.to_str().unwrap())
+        .with_context(||format!("read onnx {:?}", onnx))?;
     if net.set_preferable_backend(dnn::DNN_BACKEND_CUDA).is_ok() &&
        net.set_preferable_target(dnn::DNN_TARGET_CUDA_FP16).is_ok() {
         eprintln!("[info] DNN backend: CUDA");
@@ -193,44 +131,120 @@ fn main()->Result<()>{
     let mut outs:Vector<Mat>=Vector::new();
     net.forward(&mut outs, &names)?;
     if outs.len()==0 { bail!("model tidak mengembalikan output"); }
-    let out=outs.get(0)?; // asumsikan satu tensor utama
+    let out=outs.get(0)?; // ambil tensor utama
 
+    // buffer output
     let total = out.total() as usize;
     let flat:&[f32]=out.data_typed()?;
     if total % c_expect != 0 { bail!("elemen output {} tidak habis dibagi C(exp)={}", total, c_expect); }
     let n = total / c_expect;
 
-    // Empat hipotesis: (CxN/NxC) × (XYWH/XYXY)
-    let cand1 = decode_generic(&|ch,i| flat[ch*n + i], c_expect, n, conf, &class_names, orig_w, orig_h, scale, pad_x, pad_y, imgsz, false)?;
-    let cand2 = decode_generic(&|ch,i| flat[ch*n + i], c_expect, n, conf, &class_names, orig_w, orig_h, scale, pad_x, pad_y, imgsz, true)?;
-    let cand3 = decode_generic(&|ch,i| flat[i*c_expect + ch], c_expect, n, conf, &class_names, orig_w, orig_h, scale, pad_x, pad_y, imgsz, false)?;
-    let cand4 = decode_generic(&|ch,i| flat[i*c_expect + ch], c_expect, n, conf, &class_names, orig_w, orig_h, scale, pad_x, pad_y, imgsz, true)?;
+    // helper mapping dari kanvas -> gambar asli
+    let map_to_orig = |x1:f32,y1:f32,x2:f32,y2:f32, use_letterbox:bool| -> (f32,f32,f32,f32) {
+        if use_letterbox {
+            let fx  = (x1 - pad_x as f32).max(0.0);
+            let fy  = (y1 - pad_y as f32).max(0.0);
+            let fx2 = (x2 - pad_x as f32).max(0.0);
+            let fy2 = (y2 - pad_y as f32).max(0.0);
+            let inv = 1.0 / scale;
+            (
+                (fx  * inv).clamp(0.0, (orig_w - 1) as f32),
+                (fy  * inv).clamp(0.0, (orig_h - 1) as f32),
+                (fx2 * inv).clamp(0.0, (orig_w - 1) as f32),
+                (fy2 * inv).clamp(0.0, (orig_h - 1) as f32),
+            )
+        } else {
+            (
+                x1.clamp(0.0, (orig_w - 1) as f32),
+                y1.clamp(0.0, (orig_h - 1) as f32),
+                x2.clamp(0.0, (orig_w - 1) as f32),
+                y2.clamp(0.0, (orig_h - 1) as f32),
+            )
+        }
+    };
 
-    let mut sets = vec![
-        (nms(cand1, iou_t), "C×N, XYWH"),
-        (nms(cand2, iou_t), "C×N, XYXY"),
-        (nms(cand3, iou_t), "N×C, XYWH"),
-        (nms(cand4, iou_t), "N×C, XYXY"),
+    // generator kandidat (getter, xywh/xyxy, with/without letterbox mapping)
+    let make_cand = |getter: &dyn Fn(usize,usize)->f32, xyxy_mode: bool, use_letterbox: bool| -> Result<Vec<Det>> {
+        // deteksi skala bbox: normalized vs pixel
+        let mut bbox_max=0.0f32;
+        for i in 0..n { for ch in 0..4 { bbox_max=bbox_max.max(getter(ch,i).abs()); } }
+        let bbox_in_pixels = bbox_max > 1.5;
+
+        // deteksi logits / prob
+        let mut mn=f32::INFINITY; let mut mx=f32::NEG_INFINITY;
+        for i in 0..n { for ch in 4..c_expect { let v=getter(ch,i); if v<mn{mn=v} if v>mx{mx=v} } }
+        let need_sigmoid = mn < -0.01 || mx > 1.01;
+        let sig = |x:f32| 1.0/(1.0+(-x).exp());
+
+        let mut v=Vec::new();
+        for i in 0..n {
+            let (mut x1,mut y1,mut x2,mut y2) = if xyxy_mode {
+                (getter(0,i), getter(1,i), getter(2,i), getter(3,i))
+            } else {
+                let (mut cx,mut cy,mut w,mut h)=(getter(0,i), getter(1,i), getter(2,i), getter(3,i));
+                if !bbox_in_pixels { cx*=imgsz as f32; cy*=imgsz as f32; w*=imgsz as f32; h*=imgsz as f32; }
+                (cx-w/2.0, cy-h/2.0, cx+w/2.0, cy+h/2.0)
+            };
+            if xyxy_mode && !bbox_in_pixels {
+                x1*=imgsz as f32; y1*=imgsz as f32; x2*=imgsz as f32; y2*=imgsz as f32;
+            }
+
+            // kelas terbaik
+            let mut best_c=0usize; let mut best_p=f32::MIN;
+            for cc in 0..(c_expect-4) {
+                let mut p=getter(4+cc,i);
+                if need_sigmoid { p = sig(p); }
+                if p>best_p { best_p=p; best_c=cc; }
+            }
+            if best_p<conf { continue; }
+
+            let (x1,y1,x2,y2) = map_to_orig(x1,y1,x2,y2, use_letterbox);
+            if (x2-x1)>=2.0 && (y2-y1)>=2.0 {
+                v.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c});
+            }
+        }
+        Ok(v)
+    };
+
+    // 8 kombinasi (layout × format × mapping)
+    let cand = [
+        ("C×N, XYWH, with LBOX", make_cand(&|ch,i| flat[ch*n + i], false, true)?),
+        ("C×N, XYWH, no LBOX",   make_cand(&|ch,i| flat[ch*n + i], false, false)?),
+        ("C×N, XYXY, with LBOX", make_cand(&|ch,i| flat[ch*n + i], true,  true)?),
+        ("C×N, XYXY, no LBOX",   make_cand(&|ch,i| flat[ch*n + i], true,  false)?),
+        ("N×C, XYWH, with LBOX", make_cand(&|ch,i| flat[i*c_expect + ch], false, true)?),
+        ("N×C, XYWH, no LBOX",   make_cand(&|ch,i| flat[i*c_expect + ch], false, false)?),
+        ("N×C, XYXY, with LBOX", make_cand(&|ch,i| flat[i*c_expect + ch], true,  true)?),
+        ("N×C, XYXY, no LBOX",   make_cand(&|ch,i| flat[i*c_expect + ch], true,  false)?),
     ];
 
-    // pilih set terbaik
-    sets.sort_by(|(a, _), (b, _)| {
-        let (va, sa) = quality_score(a, orig_w, orig_h);
-        let (vb, sb) = quality_score(b, orig_w, orig_h);
-        // by valid count desc, then avg score desc
-        vb.cmp(&va).then_with(|| sb.partial_cmp(&sa).unwrap())
-    });
-    let (mut dets, chosen) = sets.remove(0);
-    eprintln!("[info] layout/format: {}", chosen);
+    // pilih kandidat terbaik (valid terbanyak, lalu skor rata-rata)
+    let mut best_idx=0usize; let mut best_valid=0usize; let mut best_avg=0.0f32;
+    for (idx, (_name, v)) in cand.iter().enumerate() {
+        let (valid, avg) = quality_score(v, orig_w, orig_h);
+        if valid > best_valid || (valid==best_valid && avg>best_avg) {
+            best_idx=idx; best_valid=valid; best_avg=avg;
+        }
+    }
+    let (chosen_name, mut dets) = {
+        let (name, v) = &cand[best_idx];
+        (name.to_string(), v.clone())
+    };
+    eprintln!("[info] decode chosen: {} | boxes(valid)={}", chosen_name, best_valid);
 
-    // hitung hanya kendaraan sesuai classes.json
-    let mut veh_count = 0usize;
+    // NMS
+    dets = nms(dets, iou_t);
+
+    // Gambar hanya kendaraan & hitung
+    let mut vehicle_count=0usize;
     for d in &dets {
         let label = class_names.get(d.cls).map(|s| s.as_str()).unwrap_or("");
-        if is_vehicle_label(label) { veh_count += 1; }
-        draw_box(&mut img, d, label)?;
+        if is_vehicle_label(label) {
+            vehicle_count += 1;
+            draw_box(&mut img, d, label)?;
+        }
     }
-    println!("vehicle_count: {}", veh_count);
+    println!("vehicle_count: {}", vehicle_count);
     imgcodecs::imwrite(save.to_str().unwrap(), &img, &Vector::new())?;
     println!("saved: {:?}", save);
     Ok(())
