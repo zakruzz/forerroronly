@@ -32,7 +32,6 @@ fn extract_names(v: &Value) -> Result<Vec<String>> {
 
     // Object mapping: {"0":"car","1":"bus",...} atau {"names":{"0":"car",...}}
     if let Some(map) = v.as_object() {
-        // Kalau formatnya { "names": {...} }, ambil innernya
         if let Some(inner) = map.get("names") {
             return extract_names(inner);
         }
@@ -56,14 +55,13 @@ fn extract_names(v: &Value) -> Result<Vec<String>> {
     bail!("Schema 'names' tidak dikenali (bukan array/object).");
 }
 
-/// argumen boleh angka ("2,3,5,7") atau nama kelas ("car,bus") → return indeks unik
+/// arg: "2,3,5,7" atau "car,bus" (case-insensitive) → indeks unik
 pub fn parse_count_arg(arg: &str, names: &[String]) -> Vec<i32> {
     let mut idxs: Vec<i32> = Vec::new();
     'outer: for tok in arg.split(',') {
         let t = tok.trim();
-        if t.is_empty() {
-            continue;
-        }
+        if t.is_empty() { continue; }
+
         // angka?
         if let Ok(v) = t.parse::<i32>() {
             if v >= 0 && (v as usize) < names.len() && !idxs.contains(&v) {
@@ -71,13 +69,12 @@ pub fn parse_count_arg(arg: &str, names: &[String]) -> Vec<i32> {
             }
             continue 'outer;
         }
-        // nama (case-insensitive)
+
+        // nama?
         let t_low = t.to_lowercase();
         if let Some(pos) = names.iter().position(|n| n.to_lowercase() == t_low) {
             let v = pos as i32;
-            if !idxs.contains(&v) {
-                idxs.push(v);
-            }
+            if !idxs.contains(&v) { idxs.push(v); }
         } else {
             eprintln!("[warn] token '{t}' tidak cocok angka/nama kelas manapun; diabaikan");
         }
