@@ -524,3 +524,13 @@ Error: gagal load onnx: "./best.onnx"
 Caused by:
     0: Parsing as TDim: `(((height - 1)//2)) + 1'
     1: Failed to parse "(((height - 1)//2)) + 1", Error(VerboseError { errors: [("//2)) + 1", Nom(Tag)), ("((height - 1)//2)) + 1", Nom(Alt)), ("(((height - 1)//2)) + 1", Nom(Alt))] })
+
+
+warning: use of deprecated method `tract_onnx::prelude::ndarray::impl_owned_array::<impl tract_onnx::prelude::ndarray::ArrayBase<tract_onnx::prelude::ndarray::OwnedRepr<A>, D>>::into_raw_vec`: Use .into_raw_vec_and_offset() instead
+   --> src/main.rs:389:45
+    |
+389 |         let flat: Vec<f32> = out.to_owned().into_raw_vec();
+    |                                             ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
