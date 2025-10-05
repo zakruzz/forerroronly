@@ -679,3 +679,21 @@ warning: use of deprecated method `tract_onnx::prelude::ndarray::impl_owned_arra
   --imgsz 640 --conf 0.20 --iou 0.45 \
   --filter-vehicle=false \
   --verbose
+
+
+
+error: failed to run custom build command for `tensorrt-sys v0.3.0`
+
+Caused by:
+  process didn't exit successfully: `/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/target/debug/build/tensorrt-sys-2ca3ac782538b488/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rustc-link-lib=static=trt-sys
+  cargo:rustc-flags=-l dylib=stdc++
+  link path:  /lib/aarch64-linux-gnu/libnvinfer.so
+
+  --- stderr
+
+  thread 'main' panicked at /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tensorrt-sys-0.3.0/build.rs:50:9:
+  Invalid nvinfer version found. Expected: libnvinfer.so.5.1.5, Found: libnvinfer.so.10.3.0
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
