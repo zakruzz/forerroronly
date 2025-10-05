@@ -13,9 +13,13 @@ use std::{collections::HashMap, fs, time::Instant};
 // ===== Konfigurasi =====
 const INPUT_W: i32 = 640;
 const INPUT_H: i32 = 640;
-const CONF_THR: f32 = 0.25;
+const CONF_THR: f32 = 0.15;          // turunkan dikit buat sanity check
 const IOU_THR: f32 = 0.45;
 const DRAW_BOXES: bool = true;
+
+// *** Tambahan kunci ***
+const APPLY_SIGMOID: bool = true;          // set true jika output masih logit
+const COORDS_ARE_NORMALIZED: bool = false; // set true jika cx,cy,w,h dalam 0..1
 
 // ===== Utils =====
 fn load_classes(path: &str) -> Result<Vec<String>> {
@@ -76,6 +80,9 @@ fn make_input_chw(bgr_u8: &Mat) -> Result<Vec<f32>> {
     Ok(out)
 }
 
+#[inline]
+fn sigmoid(x: f32) -> f32 { 1.0 / (1.0 + (-x).exp()) }
+
 // ===== Struktur & NMS =====
 #[derive(Clone)]
 struct Det { x1:f32, y1:f32, x2:f32, y2:f32, conf:f32, cls:usize }
@@ -111,9 +118,22 @@ fn decode_single_output(out:&[f32], shape:&[usize], num_classes:usize, conf_thr:
     if stride == 0 || out.is_empty() { return vec![]; }
     let mut dets = Vec::new();
 
+    // helper untuk konversi box (cx,cy,w,h) -> (x1,y1,x2,y2)
+    let to_box = |cx:f32, cy:f32, w:f32, h:f32| -> (f32,f32,f32,f32) {
+        let (mut cx, mut cy, mut w, mut h) = (cx, cy, w, h);
+        if COORDS_ARE_NORMALIZED {
+            cx *= INPUT_W as f32;
+            cy *= INPUT_H as f32;
+            w  *= INPUT_W as f32;
+            h  *= INPUT_H as f32;
+        }
+        (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0)
+    };
+
     if shape.len() >= 3 {
         let a = shape[1];
         let b = shape[2];
+
         if a == stride {
             // [1, 5+C, N]
             let n = b;
@@ -122,16 +142,18 @@ fn decode_single_output(out:&[f32], shape:&[usize], num_classes:usize, conf_thr:
                 let cy = out[1*n + i];
                 let w  = out[2*n + i];
                 let h  = out[3*n + i];
-                let obj = out[4*n + i];
+                let obj_raw = out[4*n + i];
+                let obj = if APPLY_SIGMOID { sigmoid(obj_raw) } else { obj_raw };
                 if obj < conf_thr { continue; }
                 let (mut best_c, mut best_s) = (0usize, 0f32);
                 for c in 0..num_classes {
-                    let s = out[(5 + c)*n + i];
+                    let s_raw = out[(5 + c)*n + i];
+                    let s = if APPLY_SIGMOID { sigmoid(s_raw) } else { s_raw };
                     if s > best_s { best_s = s; best_c = c; }
                 }
                 let conf = obj * best_s;
                 if conf < conf_thr { continue; }
-                let (x1,y1,x2,y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+                let (x1,y1,x2,y2) = to_box(cx,cy,w,h);
                 dets.push(Det { x1,y1,x2,y2, conf, cls: best_c });
             }
             return dets;
@@ -145,16 +167,18 @@ fn decode_single_output(out:&[f32], shape:&[usize], num_classes:usize, conf_thr:
                 let cy = out[base + 1];
                 let w  = out[base + 2];
                 let h  = out[base + 3];
-                let obj = out[base + 4];
+                let obj_raw = out[base + 4];
+                let obj = if APPLY_SIGMOID { sigmoid(obj_raw) } else { obj_raw };
                 if obj < conf_thr { continue; }
                 let (mut best_c, mut best_s) = (0usize, 0f32);
                 for c in 0..num_classes {
-                    let s = out[base + 5 + c];
+                    let s_raw = out[base + 5 + c];
+                    let s = if APPLY_SIGMOID { sigmoid(s_raw) } else { s_raw };
                     if s > best_s { best_s = s; best_c = c; }
                 }
                 let conf = obj * best_s;
                 if conf < conf_thr { continue; }
-                let (x1,y1,x2,y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+                let (x1,y1,x2,y2) = to_box(cx,cy,w,h);
                 dets.push(Det { x1,y1,x2,y2, conf, cls: best_c });
             }
             return dets;
@@ -170,16 +194,18 @@ fn decode_single_output(out:&[f32], shape:&[usize], num_classes:usize, conf_thr:
             let cy = out[base + 1];
             let w  = out[base + 2];
             let h  = out[base + 3];
-            let obj = out[base + 4];
+            let obj_raw = out[base + 4];
+            let obj = if APPLY_SIGMOID { sigmoid(obj_raw) } else { obj_raw };
             if obj < conf_thr { continue; }
             let (mut best_c, mut best_s) = (0usize, 0f32);
             for c in 0..num_classes {
-                let s = out[base + 5 + c];
+                let s_raw = out[base + 5 + c];
+                let s = if APPLY_SIGMOID { sigmoid(s_raw) } else { s_raw };
                 if s > best_s { best_s = s; best_c = c; }
             }
             let conf = obj * best_s;
             if conf < conf_thr { continue; }
-            let (x1,y1,x2,y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+            let (x1,y1,x2,y2) = to_box(cx,cy,w,h);
             dets.push(Det { x1,y1,x2,y2, conf, cls: best_c });
         }
     }
@@ -208,7 +234,7 @@ async fn main() -> Result<()> {
     let rt = Runtime::new().await;
     let mut engine: Engine = rt.deserialize_engine(&plan).await.context("deserialize TRT")?;
 
-    // Ambil nama IO & cek jumlah output — SEMUA dilakukan sebelum bikin ctx
+    // IO names (wajib single-output)
     let mut input_name: Option<String> = None;
     let mut outputs: Vec<String> = Vec::new();
     for i in 0..engine.num_io_tensors() {
@@ -230,9 +256,11 @@ async fn main() -> Result<()> {
     }
     let output_name = outputs.remove(0);
 
-    // Ambil shape & alok buffer (sebelum ctx untuk hindari pinjam ganda)
+    // Shape & buffer (ambil sebelum ctx)
     let in_shape = engine.tensor_shape(&input_name);
     let out_shape = engine.tensor_shape(&output_name);
+    println!("TRT IO shapes -> input {:?}, output {:?}", in_shape, out_shape);
+
     let in_elems: usize = in_shape.iter().product();
     let out_elems: usize = out_shape.iter().product();
 
@@ -242,7 +270,7 @@ async fn main() -> Result<()> {
     let mut d_in  = DeviceBuffer::<f32>::new(in_elems,  &stream).await;
     let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream).await;
 
-    // Baru sekarang bikin execution context (pinjam mut engine)
+    // Context
     let mut ctx = ExecutionContext::new(&mut engine).await.context("create exec ctx")?;
 
     // 4) loop
@@ -256,7 +284,6 @@ async fn main() -> Result<()> {
     loop {
         if !cap.read(&mut frame)? || frame.empty() { break; }
 
-        // preview ringan
         imgproc::resize(&frame, &mut disp, Size::new(960, 540), 0.0, 0.0, imgproc::INTER_LINEAR)?;
 
         // preprocess (letterbox)
