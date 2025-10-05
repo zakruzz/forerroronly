@@ -1895,3 +1895,14 @@ error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previ
 [10/05/2025-15:32:55] [E] Failed to create engine from model or file.
 [10/05/2025-15:32:55] [E] Engine set up failed
 &&&& FAILED TensorRT.trtexec [TensorRT v100300] # /usr/src/tensorrt/bin/trtexec --onnx=models/best.onnx --saveEngine=models/best_fp16.engine --shapes=images:1x3x640x640 --fp16 --useCudaGraph --memPoolSize=workspace:2048 --noTF32
+
+
+# CUDA, cuDNN, TensorRT
+nvcc --version
+dpkg -l | grep -E 'TensorRT|nvinfer|nvonnxparser|cudnn|cuda'
+
+# GStreamer dev & plugin
+gst-inspect-1.0 | head
+
+# Rust toolchain
+rustc --version || true
