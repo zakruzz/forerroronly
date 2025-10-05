@@ -82,3 +82,52 @@ gstreamer-app = "0.22"
 # Inference ONNX (CPU) — gampang build di Jetson
 tract-onnx = "0.21"
 tract-ndarray = "0.21"
+
+
+ahmadradhy@ubuntu:~/Image_processing$ cargo build
+   Compiling image_processor v0.1.0 (/home/ahmadradhy/Image_processing)
+error[E0433]: failed to resolve: could not find `VectorOfMat` in `types`
+   --> src/main.rs:207:27
+    |
+207 |     let mut outs = types::VectorOfMat::new();
+    |                           ^^^^^^^^^^^ could not find `VectorOfMat` in `types`
+
+error[E0277]: the trait bound `BoxedRef<'_, Mat>: ToOutputArray` is not satisfied
+  --> src/main.rs:47:21
+   |
+47 |     resized.copy_to(&mut target)?;
+   |             ------- ^^^^^^^^^^^ the trait `ToOutputArray` is not implemented for `BoxedRef<'_, Mat>`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `ToOutputArray`:
+             &mut BoxedRefMut<'_, T>
+             &mut Mat
+             &mut Matx<T, A>
+             &mut UMat
+             &mut VecN<T, N>
+             &mut Vector<Mat>
+             &mut Vector<Point3_<f32>>
+             &mut Vector<Point3_<f64>>
+           and 71 others
+note: required by a bound in `opencv::prelude::MatTraitConst::copy_to`
+  --> /home/ahmadradhy/gen_npy/target/debug/build/opencv-058e00f923e73981/out/opencv/core.rs:16095:3
+
+error[E0282]: type annotations needed for `Vec<_>`
+  --> src/main.rs:65:9
+   |
+65 |     let mut keep = Vec::new();
+   |         ^^^^^^^^
+...
+68 |             if d.cls == k.cls && iou(&d, k) > iou_t { continue 'outer; }
+   |                         ----- type must be known at this point
+   |
+help: consider giving `keep` an explicit type, where the type for type parameter `T` is specified
+   |
+65 |     let mut keep: Vec<T> = Vec::new();
+   |                 ++++++++
+
+Some errors have detailed explanations: E0277, E0282, E0433.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `image_processor` (bin "image_processor") due to 3 previous errors
+
