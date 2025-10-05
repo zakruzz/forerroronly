@@ -28,7 +28,7 @@ fn is_vehicle(name: &str) -> bool {
     keys.iter().any(|k| n.contains(k))
 }
 
-/// Letterbox via copyMakeBorder (tanpa ROI)
+/// Letterbox via core::copy_make_border (tanpa ROI)
 fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let w = img.cols();
     let h = img.rows();
@@ -47,14 +47,14 @@ fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let bottom = dst - nh - top;
 
     let mut canvas = Mat::default();
-    imgproc::copy_make_border(
+    core::copy_make_border(
         &resized,
         &mut canvas,
         top,
         bottom,
         left,
         right,
-        imgproc::BORDER_CONSTANT,
+        core::BORDER_CONSTANT,
         Scalar::new(114.0,114.0,114.0,0.0),
     )?;
 
@@ -83,6 +83,7 @@ fn nms(mut v: Vec<Det>, iou_t: f32) -> Vec<Det> {
     keep
 }
 
+/// Decode YOLOv8 tanpa objectness: output [1, (4+nc), N]
 fn decode_yolov8_4plusnc(
     flat: &[f32],
     c: usize,
@@ -205,7 +206,7 @@ fn main() -> Result<()> {
 
     // letterbox → blob
     let (letter, scale, pad_x, pad_y) = letterbox_bgr(&img, imgsz)?;
-    let mut blob = dnn::blob_from_image(
+    let blob = dnn::blob_from_image(
         &letter, 1.0/255.0, Size::new(imgsz, imgsz),
         Scalar::default(), true, false, core::CV_32F
     )?;
@@ -233,7 +234,7 @@ fn main() -> Result<()> {
     if outs.len() == 0 { bail!("tidak ada output dari model"); }
     let out = outs.get(0)?; // [1, C, N]
 
-    let total = out.total() as usize; // di crate-mu: usize, bukan Result
+    let total = out.total() as usize;
     if total % c != 0 { bail!("elemen output {} tidak habis dibagi C={}", total, c); }
     let n = total / c;
 
