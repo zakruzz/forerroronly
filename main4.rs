@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use opencv::{
-    core::{self, Mat, MatTraitConst, MatTraitConstManual, Rect, Scalar, Size, Vector},
+    core::{self, Mat, MatTraitConst, MatTraitConstManual, Scalar, Size, Vector},
     dnn,
     imgcodecs,
     imgproc,
@@ -28,7 +28,7 @@ fn is_vehicle(name: &str) -> bool {
     keys.iter().any(|k| n.contains(k))
 }
 
-/// Letterbox ala YOLO (BGR), return (kanvas, scale, pad_x, pad_y)
+/// Letterbox via copyMakeBorder (tanpa ROI)
 fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let w = img.cols();
     let h = img.rows();
@@ -36,22 +36,31 @@ fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let nw = ((w as f32) * s).round() as i32;
     let nh = ((h as f32) * s).round() as i32;
 
+    // resize ke (nw, nh)
     let mut resized = Mat::default();
     imgproc::resize(img, &mut resized, Size::new(nw, nh), 0.0, 0.0, imgproc::INTER_LINEAR)?;
 
-    let mut canvas = Mat::new_rows_cols_with_default(dst, dst, core::CV_8UC3, Scalar::new(114.0,114.0,114.0,0.0))?;
-    let dx = (dst - nw) / 2;
-    let dy = (dst - nh) / 2;
+    // padding kiri/kanan/atas/bawah supaya jadi dst×dst
+    let left = (dst - nw) / 2;
+    let top  = (dst - nh) / 2;
+    let right = dst - nw - left;
+    let bottom = dst - nh - top;
 
-    // PAKAI roi_mut() (bukan roi()) supaya bisa jadi target copy_to
-    let roi = Rect::new(dx, dy, nw, nh);
-    let mut target = core::Mat::roi_mut(&mut canvas, roi)?;
-    resized.copy_to(&mut target)?;
+    let mut canvas = Mat::default();
+    imgproc::copy_make_border(
+        &resized,
+        &mut canvas,
+        top,
+        bottom,
+        left,
+        right,
+        imgproc::BORDER_CONSTANT,
+        Scalar::new(114.0,114.0,114.0,0.0),
+    )?;
 
-    Ok((canvas, s, dx, dy))
+    Ok((canvas, s, left, top))
 }
 
-/// IoU dan NMS per-kelas
 fn iou(a: &Det, b: &Det) -> f32 {
     let x1 = a.x1.max(b.x1);
     let y1 = a.y1.max(b.y1);
@@ -67,16 +76,13 @@ fn nms(mut v: Vec<Det>, iou_t: f32) -> Vec<Det> {
     let mut keep: Vec<Det> = Vec::new();
     'outer: for d in v {
         for k in &keep {
-            if d.cls == k.cls && iou(&d, k) > iou_t {
-                continue 'outer;
-            }
+            if d.cls == k.cls && iou(&d, k) > iou_t { continue 'outer; }
         }
         keep.push(d);
     }
     keep
 }
 
-/// Decode YOLOv8 tanpa objectness: output [1, (4+nc), N]
 fn decode_yolov8_4plusnc(
     flat: &[f32],
     c: usize,
@@ -95,12 +101,9 @@ fn decode_yolov8_4plusnc(
     if nc != class_names.len() {
         bail!("Mismatch jumlah kelas: C-4={} vs classes.json={}", nc, class_names.len());
     }
-    // cek logits ↔ prob
+    // deteksi logits vs prob
     let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
-    for &v in flat {
-        if v < mn { mn = v }
-        if v > mx { mx = v }
-    }
+    for &v in flat { if v < mn { mn = v } if v > mx { mx = v } }
     let need_sigmoid = mn < -0.01 || mx > 1.01;
     let sig = |x: f32| 1.0 / (1.0 + (-x).exp());
 
@@ -113,7 +116,6 @@ fn decode_yolov8_4plusnc(
         let mut w  = flat[2 * stride + i].clamp(0.0, 1.0);
         let mut h  = flat[3 * stride + i].clamp(0.0, 1.0);
 
-        // kelas terbaik
         let (mut best_c, mut best_p) = (0usize, f32::MIN);
         for cc in 0..nc {
             let mut p = flat[(4 + cc) * stride + i];
@@ -127,9 +129,9 @@ fn decode_yolov8_4plusnc(
             if !is_vehicle(cname) { continue; }
         }
 
-        // balik koordinat dari kanvas ke gambar asli
+        // balik dari kanvas dst×dst ke ukuran asli
         cx *= dst as f32; cy *= dst as f32; w *= dst as f32; h *= dst as f32;
-        let (mut x1, mut y1, mut x2, mut y2) = (cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0);
+        let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
 
         let fx  = (x1 - pad_x as f32).max(0.0);
         let fy  = (y1 - pad_y as f32).max(0.0);
@@ -149,11 +151,11 @@ fn decode_yolov8_4plusnc(
 }
 
 fn draw_box(img: &mut Mat, d: &Det, label: &str) -> Result<()> {
-    let p1 = core::Point::new(d.x1 as i32, d.y1 as i32);
-    let p2 = core::Point::new(d.x2 as i32, d.y2 as i32);
+    let p1 = opencv::core::Point::new(d.x1 as i32, d.y1 as i32);
+    let p2 = opencv::core::Point::new(d.x2 as i32, d.y2 as i32);
     imgproc::rectangle(
         img,
-        core::Rect::new(p1.x, p1.y, (p2.x - p1.x).max(1), (p2.y - p1.y).max(1)),
+        opencv::core::Rect::new(p1.x, p1.y, (p2.x - p1.x).max(1), (p2.y - p1.y).max(1)),
         Scalar::new(0.0, 255.0, 0.0, 0.0),
         2,
         imgproc::LINE_8,
@@ -161,15 +163,10 @@ fn draw_box(img: &mut Mat, d: &Det, label: &str) -> Result<()> {
     )?;
     let text = format!("{} {:.2}", label, d.score);
     imgproc::put_text(
-        img,
-        &text,
-        p1,
-        imgproc::FONT_HERSHEY_SIMPLEX,
-        0.5,
+        img, &text, p1,
+        imgproc::FONT_HERSHEY_SIMPLEX, 0.5,
         Scalar::new(0.0, 255.0, 0.0, 0.0),
-        1,
-        imgproc::LINE_8,
-        false,
+        1, imgproc::LINE_8, false,
     )?;
     Ok(())
 }
@@ -191,7 +188,7 @@ fn main() -> Result<()> {
     let filter_vehicle: bool = a.get(7).map(|s| s=="1" || s.to_lowercase()=="true").unwrap_or(true);
     let save = PathBuf::from(a.get(8).cloned().unwrap_or_else(|| "result.jpg".to_string()));
 
-    // classes.json
+    // classes.json -> Vec<String>
     let txt = fs::read_to_string(&classes_path).context("baca classes.json")?;
     let j: Value = serde_json::from_str(&txt).context("parse classes.json")?;
     let arr = j.as_array().ok_or_else(|| anyhow!("classes.json harus array string"))?;
@@ -199,17 +196,15 @@ fn main() -> Result<()> {
     if class_names.is_empty() { bail!("classes.json kosong"); }
     let c = 4 + class_names.len();
 
-    // gambar input
+    // baca gambar (BGR)
     let mut img = imgcodecs::imread(image_path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)
         .with_context(|| format!("open {:?}", image_path))?;
     if img.empty() { bail!("gagal baca gambar"); }
     let orig_w = img.cols();
     let orig_h = img.rows();
 
-    // letterbox ke imgsz×imgsz
+    // letterbox → blob
     let (letter, scale, pad_x, pad_y) = letterbox_bgr(&img, imgsz)?;
-
-    // blob NCHW float32 1/255, swapRB = true
     let mut blob = dnn::blob_from_image(
         &letter, 1.0/255.0, Size::new(imgsz, imgsz),
         Scalar::default(), true, false, core::CV_32F
@@ -219,34 +214,30 @@ fn main() -> Result<()> {
     let mut net = dnn::read_net_from_onnx(onnx.to_str().unwrap())
         .with_context(|| format!("read onnx {:?}", onnx))?;
 
-    // prefer CUDA (kalau ada), else CPU
+    // coba CUDA, fallback CPU
     let mut used_cuda = false;
     if net.set_preferable_backend(dnn::DNN_BACKEND_CUDA).is_ok()
         && net.set_preferable_target(dnn::DNN_TARGET_CUDA_FP16).is_ok()
-    {
-        used_cuda = true;
-    } else {
+    { used_cuda = true; }
+    else {
         net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
         net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
     }
 
     net.set_input(&blob, "", 1.0, Scalar::default())?;
 
-    // ambil output
+    // forward → ambil output pertama
     let names = net.get_unconnected_out_layers_names()?;
     let mut outs: Vector<Mat> = Vector::new();
     net.forward(&mut outs, &names)?;
     if outs.len() == 0 { bail!("tidak ada output dari model"); }
-    let out = outs.get(0)?; // tensor pertama
+    let out = outs.get(0)?; // [1, C, N]
 
-    // total() di versi crate-mu mengembalikan usize (bukan Result)
-    let total = out.total() as usize;
-    if total % c != 0 {
-        bail!("total elemen output {} tidak habis dibagi C={}", total, c);
-    }
+    let total = out.total() as usize; // di crate-mu: usize, bukan Result
+    if total % c != 0 { bail!("elemen output {} tidak habis dibagi C={}", total, c); }
     let n = total / c;
 
-    // ambil slice f32 (tanpa unsafe)
+    // akses data float
     let flat: &[f32] = out.data_typed()?;
 
     // decode + nms
