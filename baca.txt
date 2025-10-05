@@ -670,3 +670,12 @@ warning: use of deprecated method `tract_onnx::prelude::ndarray::impl_owned_arra
 	],
 	"origin": "extHost1"
 }]
+
+
+./target/release/jetson_yolo_count \
+  --onnx ./best_640_simp.onnx \
+  --classes ./classes.json \
+  --device /dev/video0 \
+  --imgsz 640 --conf 0.20 --iou 0.45 \
+  --filter-vehicle=false \
+  --verbose
