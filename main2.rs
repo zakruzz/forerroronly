@@ -6,15 +6,17 @@ use gstreamer_app::{AppSink, AppSrc};
 use image::{imageops, ImageBuffer, Rgb};
 use serde::Deserialize;
 use std::{fs, path::PathBuf, time::Instant};
-
-// Tract ONNX (CPU) — simple & portable
 use tract_ndarray::Array4;
 use tract_onnx::prelude::*;
+
+// ==== Konfigurasi capture/preview tetap (biar panel preview aman) ====
+const CAP_WIDTH: u32 = 1280;
+const CAP_HEIGHT: u32 = 720;
 
 #[derive(Parser, Debug)]
 #[command(name="jetson_yolo_count")]
 struct Args {
-    /// Path ONNX (hasil export/simplify)
+    /// Path ONNX (hasil export/simplify, fixed 1x3xIMGxIMG)
     #[arg(long)]
     onnx: PathBuf,
 
@@ -42,15 +44,15 @@ struct Args {
     #[arg(long, default_value_t=true)]
     filter_vehicle: bool,
 
-    /// Tampilkan FPS dan info output
+    /// Tampilkan FPS & info output
     #[arg(long, default_value_t=false)]
     verbose: bool,
 
-    /// Tampilkan preview video dengan bounding box
+    /// Nyalakan preview dengan bounding box
     #[arg(long, default_value_t=false)]
     preview: bool,
 
-    /// Target fps preview (hanya untuk caps appsrc)
+    /// Target FPS untuk caps preview
     #[arg(long, default_value_t=30)]
     preview_fps: u32,
 }
@@ -101,9 +103,9 @@ fn chw_normalize(inp: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Vec<f32> {
         for x in 0..w {
             let p = inp.get_pixel(x as u32, y as u32);
             let idx = y * w + x;
-            out[idx] = p[0] as f32 / 255.0;         // R
-            out[w * h + idx] = p[1] as f32 / 255.0; // G
-            out[2 * w * h + idx] = p[2] as f32 / 255.0; // B
+            out[idx] = p[0] as f32 / 255.0;               // R
+            out[w * h + idx] = p[1] as f32 / 255.0;       // G
+            out[2 * w * h + idx] = p[2] as f32 / 255.0;   // B
         }
     }
     out
@@ -132,10 +134,10 @@ fn nms(mut dets: Vec<Detection>, iou_thresh: f32) -> Vec<Detection> {
     keep
 }
 
-/// Decoder multi-format:
-/// - (1, 5+nc, N)  => YOLOv5 (x,y,w,h,obj,cls...)
-/// - (1, 4+nc, N)  => YOLOv8 (x,y,w,h,cls...)      score = max(cls_prob)
-/// - (1, N, 5+nc)  / (1, N, 4+nc) => transpose varian
+/// Decoder multi-format (YOLOv5 & YOLOv8):
+/// - (1, 5+nc, N)  => v5 (x,y,w,h,obj,cls...), score = obj * max(cls)
+/// - (1, 4+nc, N)  => v8 (x,y,w,h,cls...),     score = max(cls)
+/// - (1, N, 5+nc) atau (1, N, 4+nc)
 fn decode_yolo_dynamic(
     out: &[f32],
     shape: &[usize],          // [1, C, N] atau [1, N, C]
@@ -153,7 +155,6 @@ fn decode_yolo_dynamic(
     let (a, b) = (shape[1], shape[2]);
 
     let mut dets = Vec::new();
-
     let mut push_det = |mut cx: f32, mut cy: f32, mut w: f32, mut h: f32, score: f32, class_id: usize| {
         cx *= dst_size as f32;
         cy *= dst_size as f32;
@@ -266,17 +267,18 @@ fn decode_yolo_dynamic(
     bail!("format output YOLO tidak dikenali. shape={shape:?}");
 }
 
+// ============== GStreamer helpers ==============
 fn build_capture_pipeline(device: &str) -> Result<(gst::Pipeline, AppSink)> {
     gst::init()?;
 
-    // BGR 1280x720 → appsink
+    // Paksa keluar BGR CAP_WIDTHxCAP_HEIGHT supaya preview aman
     let pipeline_str = format!(
         "v4l2src device={} !
          videoconvert ! video/x-raw,format=BGR !
-         videoscale ! video/x-raw,width=1280,height=720 !
+         videoscale ! video/x-raw,width={},height={} !
          queue max-size-buffers=1 leaky=downstream !
          appsink name=sink emit-signals=false sync=false max-buffers=1 drop=true",
-        device
+        device, CAP_WIDTH, CAP_HEIGHT
     );
 
     let pipeline = gst::parse::launch(&pipeline_str)
@@ -293,25 +295,27 @@ fn build_capture_pipeline(device: &str) -> Result<(gst::Pipeline, AppSink)> {
     Ok((pipeline, appsink))
 }
 
-/// Buat pipeline preview: appsrc (BGR, WxH) → autovideosink
-fn build_preview_pipeline(width: u32, height: u32, fps: u32) -> Result<(gst::Pipeline, AppSrc)> {
-    // is-live=true & do-timestamp=true memudahkan timing
-    let desc = format!(
-        "appsrc name=src is-live=true format=time do-timestamp=true !
-         videoconvert !
-         autovideosink sync=false"
-    );
-    let pipeline = gst::parse::launch(&desc)?
+struct Preview {
+    pipe: gst::Pipeline,
+    appsrc: AppSrc,
+    w: u32,
+    h: u32,
+}
+
+fn build_preview_pipeline(width: u32, height: u32, fps: u32) -> Result<Preview> {
+    let desc = "appsrc name=src is-live=true format=time do-timestamp=true ! \
+                videoconvert ! autovideosink sync=false";
+    let pipe = gst::parse::launch(desc)?
         .downcast::<gst::Pipeline>()
         .map_err(|_| anyhow!("preview pipeline downcast gagal"))?;
 
-    let appsrc = pipeline
+    let appsrc = pipe
         .by_name("src")
         .ok_or_else(|| anyhow!("appsrc 'src' tidak ditemukan"))?
         .downcast::<AppSrc>()
         .map_err(|_| anyhow!("appsrc downcast gagal"))?;
 
-    // Set caps: BGR, width/height/fps sesuai capture
+    // Caps BGR agar match dengan buffer dari capture
     let caps = gst::Caps::builder("video/x-raw")
         .field("format", &"BGR")
         .field("width", &(width as i32))
@@ -320,10 +324,9 @@ fn build_preview_pipeline(width: u32, height: u32, fps: u32) -> Result<(gst::Pip
         .build();
     appsrc.set_caps(Some(&caps));
 
-    Ok((pipeline, appsrc))
+    Ok(Preview { pipe, appsrc, w: width, h: height })
 }
 
-/// Gambar kotak (BGR) di buffer in-place.
 fn draw_rect_bgr(buf: &mut [u8], w: u32, h: u32, x1f: f32, y1f: f32, x2f: f32, y2f: f32, thick: u32, bgr: (u8,u8,u8)) {
     let (mut x1, mut y1, mut x2, mut y2) = (x1f.round() as i32, y1f.round() as i32, x2f.round() as i32, y2f.round() as i32);
     let (w_i, h_i) = (w as i32, h as i32);
@@ -334,7 +337,6 @@ fn draw_rect_bgr(buf: &mut [u8], w: u32, h: u32, x1f: f32, y1f: f32, x2f: f32, y
     let t = thick.max(1) as i32;
     let (bb, gg, rr) = (bgr.0, bgr.1, bgr.2);
 
-    // helper: set pixel BGR
     let mut set_px = |xx: i32, yy: i32| {
         if xx < 0 || yy < 0 || xx >= w_i || yy >= h_i { return; }
         let idx = (yy as usize * w as usize + xx as usize) * 3;
@@ -344,14 +346,12 @@ fn draw_rect_bgr(buf: &mut [u8], w: u32, h: u32, x1f: f32, y1f: f32, x2f: f32, y
         buf[idx + 2] = rr;
     };
 
-    // garis horizontal atas/bawah
     for dy in 0..t {
         for x in x1..=x2 {
             set_px(x, y1 + dy);
             set_px(x, y2 - dy);
         }
     }
-    // garis vertikal kiri/kanan
     for dx in 0..t {
         for y in y1..=y2 {
             set_px(x1 + dx, y);
@@ -363,44 +363,41 @@ fn draw_rect_bgr(buf: &mut [u8], w: u32, h: u32, x1f: f32, y1f: f32, x2f: f32, y
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // 1) load classes
+    // 1) classes
     let classes: ClassList = serde_json::from_slice(
         &fs::read(&args.classes).context("gagal baca classes.json")?
     ).context("classes.json bukan array string?")?;
-    if classes.0.is_empty() {
-        bail!("classes.json kosong");
-    }
+    if classes.0.is_empty() { bail!("classes.json kosong"); }
 
-    // 2) siapkan GStreamer (capture)
+    // 2) capture pipeline (fix BGR 1280x720)
     let (cap_pipe, appsink) = build_capture_pipeline(&args.device)?;
     cap_pipe.set_state(gst::State::Playing)?;
 
-    // 3) siapkan ONNX (Tract)
+    // 3) preview pipeline (opsional, dibuat SEKALI di awal)
+    let mut preview: Option<Preview> = if args.preview {
+        let pv = build_preview_pipeline(CAP_WIDTH, CAP_HEIGHT, args.preview_fps)?;
+        pv.pipe.set_state(gst::State::Playing)?;
+        Some(pv)
+    } else { None };
+
+    // 4) siapkan ONNX (Tract)
     let mut model = tract_onnx::onnx()
         .model_for_path(&args.onnx)
         .with_context(|| format!("gagal load onnx: {:?}", &args.onnx))?;
-
     model.set_input_fact(
         0,
         InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, args.imgsz as usize, args.imgsz as usize))
     )?;
-
     let model = model.into_optimized()?.into_runnable()?;
 
-    // 4) preview pipeline (dibuat setelah tahu resolusi frame pertama)
-    let mut preview: Option<(gst::Pipeline, AppSrc, u32, u32)> = None;
-
+    // 5) loop: capture → preprocess → infer → decode → (draw + preview)
     let mut last = Instant::now();
     let mut frame_idx: u64 = 0;
 
     loop {
-        // AppSink::try_pull_sample butuh Option<ClockTime>
         let sample = match appsink.try_pull_sample(Some(gst::ClockTime::from_mseconds(500))) {
             Some(s) => s,
-            None => {
-                eprintln!("timeout ambil frame…");
-                continue;
-            }
+            None => { eprintln!("timeout ambil frame…"); continue; }
         };
 
         let buffer = match sample.buffer() {
@@ -408,65 +405,44 @@ fn main() -> Result<()> {
             None => { eprintln!("buffer kosong"); continue; }
         };
 
-        let caps = match sample.caps() {
-            Some(c) => c,
-            None => { eprintln!("caps kosong"); continue; }
-        };
-
-        let s = match caps.structure(0) {
-            Some(st) => st,
-            None => { eprintln!("caps.structure(0) kosong"); continue; }
-        };
-
-        let w: u32 = s.get::<i32>("width").unwrap_or(1280) as u32;
-        let h: u32 = s.get::<i32>("height").unwrap_or(720) as u32;
-
-        // buat preview pipeline sekali setelah tahu w,h
-        if args.preview && preview.is_none() {
-            let (pipe_pv, appsrc, _, _) = build_preview_pipeline(w, h, args.preview_fps)?;
-            pipe_pv.set_state(gst::State::Playing)?;
-            preview = Some((pipe_pv, appsrc, w, h));
-        }
-
+        // ambil BGR bytes
         let map = match buffer.map_readable() {
             Ok(m) => m,
             Err(_) => { eprintln!("map buffer gagal"); continue; }
         };
         let bgr = map.as_slice();
-
-        if bgr.len() != (w * h * 3) as usize {
-            eprintln!("ukuran buffer tidak cocok ({} vs {})", bgr.len(), w*h*3);
+        if bgr.len() != (CAP_WIDTH * CAP_HEIGHT * 3) as usize {
+            eprintln!("ukuran buffer tidak cocok ({} vs {})", bgr.len(), CAP_WIDTH*CAP_HEIGHT*3);
             continue;
         }
 
-        // BGR -> RGB (untuk preprocess)
-        let mut rgb_data = vec![0u8; (w*h*3) as usize];
-        for i in 0..(w*h) as usize {
+        // BGR → RGB untuk preprocess
+        let mut rgb_data = vec![0u8; (CAP_WIDTH*CAP_HEIGHT*3) as usize];
+        for i in 0..(CAP_WIDTH*CAP_HEIGHT) as usize {
             rgb_data[3*i]   = bgr[3*i + 2];
             rgb_data[3*i+1] = bgr[3*i + 1];
             rgb_data[3*i+2] = bgr[3*i + 0];
         }
-        let rgb_img: ImageBuffer<Rgb<u8>, _> = match ImageBuffer::from_raw(w, h, rgb_data) {
+        let rgb_img: ImageBuffer<Rgb<u8>, _> = match ImageBuffer::from_raw(CAP_WIDTH, CAP_HEIGHT, rgb_data) {
             Some(im) => im,
             None => { eprintln!("buat RGB image gagal"); continue; }
         };
 
-        // Letterbox ke imgsz
+        // letterbox → CHW
         let (letter, scale, pad_x, pad_y) = letterbox_rgb(&rgb_img, args.imgsz);
         let input_chw = chw_normalize(&letter);
 
-        // Bentuk tensor [1,3,H,W]
         let arr: Array4<f32> = Array4::from_shape_vec(
             (1, 3, args.imgsz as usize, args.imgsz as usize),
             input_chw
         ).context("shape input mismatch")?;
         let input_t: TValue = Tensor::from(arr).into();
 
-        // Inference
+        // infer
         let outputs = model.run(tvec!(input_t))?;
         let out = outputs[0].to_array_view::<f32>()?;
-        let shape = out.shape().to_vec(); // contoh [1,84,8400] atau [1,8400,84]
-        let flat: Vec<f32> = out.iter().copied().collect(); // no deprecation
+        let shape = out.shape().to_vec();
+        let flat: Vec<f32> = out.iter().copied().collect();
 
         if args.verbose && frame_idx % 60 == 0 {
             let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -474,10 +450,10 @@ fn main() -> Result<()> {
             eprintln!("OUTPUT SHAPE={:?}  RANGE=[{:.4}, {:.4}]", shape, mn, mx);
         }
 
-        // Decode → NMS
+        // decode + nms
         let dets_raw = match decode_yolo_dynamic(
             &flat, &shape, args.conf, &classes.0,
-            w, h, scale, pad_x, pad_y, args.imgsz,
+            CAP_WIDTH, CAP_HEIGHT, scale, pad_x, pad_y, args.imgsz,
             args.filter_vehicle,
         ) {
             Ok(v) => v,
@@ -486,25 +462,19 @@ fn main() -> Result<()> {
         let dets = nms(dets_raw, args.iou);
         let count = dets.len();
 
-        // ==== PREVIEW: gambar kotak pada salinan BGR & kirim ke appsrc ====
-        if let Some((_, ref appsrc, pw, ph)) = preview {
-            // BGR copy → draw boxes
+        // preview (jika aktif): gambar boks di salinan buffer BGR lalu kirim ke appsrc
+        if let Some(pv) = preview.as_mut() {
             let mut bgr_draw = bgr.to_vec();
             for d in &dets {
-                draw_rect_bgr(&mut bgr_draw, w, h, d.x1, d.y1, d.x2, d.y2, 2, (0, 255, 0));
+                draw_rect_bgr(&mut bgr_draw, CAP_WIDTH, CAP_HEIGHT, d.x1, d.y1, d.x2, d.y2, 2, (0, 255, 0));
             }
-
-            // Pastikan ukuran sama dengan caps preview
-            if w == pw && h == ph {
-                let size = (w * h * 3) as usize;
-                let mut gstbuf = gst::Buffer::with_size(size).expect("alloc gst buffer");
-                {
-                    let mut mapw = gstbuf.map_writable().expect("map write");
-                    mapw.as_mut_slice().copy_from_slice(&bgr_draw);
-                }
-                // do-timestamp=true akan mengisi timestamp otomatis
-                let _ = appsrc.push_buffer(gstbuf);
+            let size = (pv.w * pv.h * 3) as usize;
+            let mut gstbuf = gst::Buffer::with_size(size).expect("alloc gst buffer");
+            {
+                let mut mapw = gstbuf.map_writable().expect("map write");
+                mapw.as_mut_slice().copy_from_slice(&bgr_draw);
             }
+            let _ = pv.appsrc.push_buffer(gstbuf);
         }
 
         frame_idx += 1;
