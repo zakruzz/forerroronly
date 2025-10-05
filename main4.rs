@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use opencv::{
-    core::{self, Mat, MatTrait, MatTraitConst, MatTraitConstManual, Scalar, Size, Vector},
+    core::{self, Mat, MatTraitConst, MatTraitConstManual, Scalar, Size, Vector},
     dnn, imgcodecs, imgproc, prelude::*,
 };
 use serde_json::Value;
@@ -13,13 +13,10 @@ fn letterbox_bgr(img:&Mat, dst:i32)->Result<(Mat, f32, i32, i32)>{
     let w=img.cols(); let h=img.rows();
     let s=(dst as f32 / w as f32).min(dst as f32 / h as f32);
     let nw=((w as f32)*s).round() as i32; let nh=((h as f32)*s).round() as i32;
-
     let mut resized=Mat::default();
     imgproc::resize(img, &mut resized, Size::new(nw,nh), 0.0,0.0, imgproc::INTER_LINEAR)?;
-
     let left=(dst-nw)/2; let top=(dst-nh)/2;
     let right=dst-nw-left; let bottom=dst-nh-top;
-
     let mut canvas=Mat::default();
     core::copy_make_border(&resized,&mut canvas, top,bottom,left,right,
         core::BORDER_CONSTANT, Scalar::new(114.0,114.0,114.0,0.0))?;
@@ -43,15 +40,6 @@ fn nms(mut v:Vec<Det>, thr:f32)->Vec<Det>{
     }
     keep
 }
-fn quality_score(d:&[Det], w:i32,h:i32)->(usize,f32){
-    let mut valid=0usize; let mut sum=0f32;
-    for b in d {
-        if b.x1>=0.0 && b.y1>=0.0 && b.x2<=w as f32 && b.y2<=h as f32 &&
-           (b.x2-b.x1)>2.0 && (b.y2-b.y1)>2.0 { valid+=1; sum+=b.score; }
-    }
-    let avg= if valid==0 {0.0} else {sum/valid as f32};
-    (valid, avg)
-}
 fn draw_box(img:&mut Mat, d:&Det, label:&str)->Result<()>{
     let p1=opencv::core::Point::new(d.x1 as i32, d.y1 as i32);
     let p2=opencv::core::Point::new(d.x2 as i32, d.y2 as i32);
@@ -65,53 +53,52 @@ fn draw_box(img:&mut Mat, d:&Det, label:&str)->Result<()>{
 
 #[inline] fn sigmoid(x:f32)->f32 { 1.0/(1.0+(-x).exp()) }
 
-/// Decode 1 tampilan matrix (rows=c, cols=n) dengan asumsi bbox=XYWH (umum YOLOv8).
-/// Otomatis deteksi: normalized (0..1) vs pixel (0..imgsz).
-fn decode_matrix_cxn(
-    m:&Mat, c:usize, n:usize, conf:f32, class_names:&[String],
+/// Decoder generik (asumsi bbox = XYWH dari YOLOv8, bisa normalized atau pixel).
+/// `get(ch,i)` memberi elemen channel `ch` (0..c-1) pada anchor `i` (0..n-1).
+fn decode_xywh<F>(
+    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
     orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, imgsz:i32
-)->Result<Vec<Det>>{
-    // ambil pointer tiap "row"
-    let row = |r:usize| -> Result<&[f32]> {
-        let rmat = m.row(r as i32)?;
-        Ok(rmat.data_typed()?)
-    };
+)->Result<Vec<Det>>
+where F: Fn(usize,usize)->f32 {
+    if c < 5 { bail!("C={} terlalu kecil", c); }
+    let nc = c - 4;
 
-    let x = row(0)?; let y = row(1)?; let w = row(2)?; let h = row(3)?;
-    // deteksi skala bbox
+    // deteksi normalized vs pixel dari rentang nilai bbox
     let mut mx = 0f32;
-    for i in 0..n { mx = mx.max(x[i].abs().max(y[i].abs()).max(w[i].abs()).max(h[i].abs())); }
+    for i in 0..n { for ch in 0..4 { mx = mx.max(get(ch,i).abs()); } }
     let in_pixels = mx > 1.5;
 
-    let nc = c - 4;
-    // siapkan view kelas
-    let cls_rows: Vec<&[f32]> = (0..nc).map(|k| row(4+k).unwrap()).collect();
-
-    let mut out=Vec::new();
+    let mut out = Vec::new();
     for i in 0..n {
-        // bbox XYWH → XYXY di kanvas
-        let mut cx=x[i]; let mut cy=y[i]; let mut ww=w[i]; let mut hh=h[i];
-        if !in_pixels { cx*=imgsz as f32; cy*=imgsz as f32; ww*=imgsz as f32; hh*=imgsz as f32; }
-        let mut x1=cx-ww/2.0; let mut y1=cy-hh/2.0;
-        let mut x2=cx+ww/2.0; let mut y2=cy+hh/2.0;
+        // bbox di kanvas
+        let mut cx=get(0,i); let mut cy=get(1,i);
+        let mut w =get(2,i); let mut h =get(3,i);
+        if !in_pixels {
+            cx *= imgsz as f32; cy *= imgsz as f32;
+            w  *= imgsz as f32; h  *= imgsz as f32;
+        }
+        let mut x1 = cx - w/2.0;
+        let mut y1 = cy - h/2.0;
+        let mut x2 = cx + w/2.0;
+        let mut y2 = cy + h/2.0;
 
-        // pilih kelas terbaik (anggap logits → sigmoid)
+        // kelas terbaik (anggap logits → sigmoid)
         let mut best_c=0usize; let mut best_p=f32::MIN;
-        for cix in 0..nc {
-            let p = sigmoid(cls_rows[cix][i]);
-            if p>best_p { best_p=p; best_c=cix; }
+        for cc in 0..nc {
+            let p = sigmoid(get(4+cc, i));
+            if p > best_p { best_p = p; best_c = cc; }
         }
         if best_p < conf { continue; }
 
-        // map balik letterbox → gambar asli
+        // map balik letterbox → koordinat gambar asli
         let inv = 1.0/scale;
-        x1=((x1 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
-        y1=((y1 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
-        x2=((x2 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
-        y2=((y2 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
+        x1 = ((x1 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
+        y1 = ((y1 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
+        x2 = ((x2 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
+        y2 = ((y2 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
 
         if (x2-x1)>=2.0 && (y2-y1)>=2.0 {
-            out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c});
+            out.push(Det { x1,y1,x2,y2, score:best_p, cls:best_c });
         }
     }
     Ok(out)
@@ -140,7 +127,7 @@ fn main()->Result<()>{
     if class_names.len()!=4 { bail!("classes.json harus 4 item (License_Plate,cars,motorcyle,truck)"); }
     let c = 4 + class_names.len(); // 8
 
-    // gambar
+    // baca gambar
     let mut img=imgcodecs::imread(image_path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)
         .with_context(||format!("open {:?}", image_path))?;
     if img.empty(){ bail!("gagal baca gambar"); }
@@ -151,7 +138,7 @@ fn main()->Result<()>{
     let blob=dnn::blob_from_image(&letter, 1.0/255.0, Size::new(imgsz,imgsz),
                                   Scalar::default(), true,false, core::CV_32F)?;
 
-    // load onnx (prefer CUDA bila tersedia)
+    // load onnx
     let mut net=dnn::read_net_from_onnx(onnx.to_str().unwrap())
         .with_context(||format!("read onnx {:?}", onnx))?;
     if net.set_preferable_backend(dnn::DNN_BACKEND_CUDA).is_ok() &&
@@ -171,36 +158,24 @@ fn main()->Result<()>{
     if outs.len()==0 { bail!("model tidak mengembalikan output"); }
     let out=outs.get(0)?; // tensor utama
 
-    // buffer
+    // ambil buffer datanya
     let total = out.total() as usize;
     let flat:&[f32]=out.data_typed()?;
     if total % c != 0 { bail!("elemen output {} tidak habis dibagi C={}", total, c); }
     let n = total / c;
 
-    // === KUNCI: reshape 2 tampilan ===
-    // Tampilan-1: rows=C, cols=N  (C×N)
-    let m_cxn = out.reshape(1, c as i32)?;
-    if m_cxn.cols() != (n as i32) { bail!("reshape C×N gagal"); }
-    let cand1 = decode_matrix_cxn(&m_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
+    // Dua layout: C×N dan N×C
+    let cand_cxn = decode_xywh(&|ch,i| flat[ch*n + i], c, n, conf, &class_names,
+                               orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
+    let cand_nxc = decode_xywh(&|ch,i| flat[i*c + ch], c, n, conf, &class_names,
+                               orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
 
-    // Tampilan-2: rows=N, cols=C  (N×C)
-    // Kita reshape ulang dari buffer awal supaya tampilan benar.
-    // Caranya: buat Mat baru dari slice flatten lalu reshape rows=N.
-    let m_all = Mat::from_slice(flat)?;               // 1 x total
-    let m_nxc = m_all.reshape(1, n as i32)?;          // rows=N, cols=C
-    if m_nxc.cols() != (c as i32) { bail!("reshape N×C gagal"); }
-    // agar interface decode mirip C×N, kita transpose jadi C×N
-    let mut m_nxc_t = Mat::default();
-    core::transpose(&m_nxc, &mut m_nxc_t)?;
-    let cand2 = decode_matrix_cxn(&m_nxc_t, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
+    // pilih hasil paling masuk akal
+    let (v1,a1) = { let k = nms(cand_cxn.clone(), iou_t); (k.len(), k.iter().map(|d| d.score).sum::<f32>()/ (k.len().max(1) as f32)) };
+    let (v2,a2) = { let k = nms(cand_nxc.clone(), iou_t); (k.len(), k.iter().map(|d| d.score).sum::<f32>()/ (k.len().max(1) as f32)) };
+    let mut dets = if v2>v1 || (v1==v2 && a2>a1) { nms(cand_nxc, iou_t) } else { nms(cand_cxn, iou_t) };
 
-    // pilih terbaik
-    let (v1,a1) = quality_score(&cand1, orig_w, orig_h);
-    let (v2,a2) = quality_score(&cand2, orig_w, orig_h);
-    let mut dets = if v2>v1 || (v1==v2 && a2>a1) { cand2 } else { cand1 };
-
-    // NMS & gambar SEMUA kelas (termasuk License_Plate)
-    dets = nms(dets, iou_t);
+    // gambar SEMUA kelas (termasuk License_Plate)
     for d in &dets {
         let label = class_names.get(d.cls).map(|s| s.as_str()).unwrap_or("obj");
         draw_box(&mut img, d, label)?;
