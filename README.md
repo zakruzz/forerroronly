@@ -286,3 +286,12 @@ bash /tmp/jetson_gpu_audit.sh
   --fp16 \
   --memPoolSize=workspace:2048 \
   --skipInference
+
+  /usr/src/tensorrt/bin/trtexec \
+  --onnx=$(pwd)/models/best.onnx \
+  --saveEngine=$(pwd)/models/best_fp16.engine \
+  --fp16 \
+  --memPoolSize=workspace:2048 \
+  --skipInference \
+  --verbose 2>&1 | tee trtexec_build.log
+
