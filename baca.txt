@@ -615,3 +615,58 @@ warning: use of deprecated method `tract_onnx::prelude::ndarray::impl_owned_arra
 	],
 	"origin": "extHost1"
 }]
+
+
+[{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [2]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "2",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "cannot borrow data in dereference of `gstreamer::Buffer` as mutable\ntrait `DerefMut` is required to modify through a dereference, but it is not implemented for `gstreamer::Buffer`",
+	"source": "rustc",
+	"startLineNumber": 474,
+	"startColumn": 32,
+	"endLineNumber": 474,
+	"endColumn": 38,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs"
+		}
+	},
+	"severity": 4,
+	"message": "variable does not need to be mutable\n`#[warn(unused_mut)]` on by default",
+	"source": "rustc",
+	"startLineNumber": 472,
+	"startColumn": 17,
+	"endLineNumber": 472,
+	"endColumn": 27,
+	"relatedInformation": [
+		{
+			"startLineNumber": 472,
+			"startColumn": 17,
+			"endLineNumber": 472,
+			"endColumn": 21,
+			"message": "remove this `mut`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs"
+		}
+	],
+	"origin": "extHost1"
+}]
