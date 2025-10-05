@@ -1,36 +1,29 @@
-
-// main.rs — semua logic satu file
-// Build: cargo build --release
-// Run  : ./target/release/jetson_yolo_count --engine yolo_fp16.plan --classes classes.json --device /dev/video0
-
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app::AppSink;
 use image::{imageops, ImageBuffer, Rgb};
-use ndarray::Array3;
+use ndarray::ArrayViewMut3;
 use serde::Deserialize;
-use std::{fs, path::PathBuf, time::Duration};
-use tokio::time::Instant;
+use std::{fs, path::PathBuf, time::Instant};
 
-// TensorRT async wrapper
-use async_tensorrt::runtime::Runtime;
-use async_tensorrt::engine::{Engine, TensorIoMode};
-use async_cuda::stream::Stream;
+// Tract ONNX (CPU dulu, biar gampang kompil jalan)
+use tract_ndarray::Array4;
+use tract_onnx::prelude::*;
 
 #[derive(Parser, Debug)]
 #[command(name="jetson_yolo_count")]
 struct Args {
-    /// Path ke TensorRT engine (.plan)
+    /// Path ONNX model (hasil export dari Colab)
     #[arg(long)]
-    engine: PathBuf,
+    onnx: PathBuf,
 
-    /// Path ke classes.json (array nama kelas)
+    /// Path ke classes.json (array string)
     #[arg(long)]
     classes: PathBuf,
 
-    /// Device kamera V4L2 (USB cam)
+    /// Device kamera V4L2
     #[arg(long, default_value="/dev/video0")]
     device: String,
 
@@ -38,15 +31,15 @@ struct Args {
     #[arg(long, default_value_t=640)]
     imgsz: u32,
 
-    /// Confidence thresh
+    /// Confidence threshold
     #[arg(long, default_value_t=0.25)]
     conf: f32,
 
-    /// IoU thresh untuk NMS
+    /// IoU threshold NMS
     #[arg(long, default_value_t=0.45)]
     iou: f32,
 
-    /// Tampilkan FPS/log detail
+    /// Verbose (print FPS)
     #[arg(long, default_value_t=false)]
     verbose: bool,
 }
@@ -62,45 +55,42 @@ struct Detection {
 }
 
 fn is_vehicle(name: &str) -> bool {
-    // Sesuaikan dengan classes.json kamu
-    // Kunci kata umum kendaraan
-    let keywords = [
-        "car","bus","truck","motorcycle","motorbike","bicycle","bike","van","pickup","trailer","truk","mobil","sepeda","motor"
+    let keys = [
+        "car","bus","truck","motorcycle","motorbike","bicycle","bike",
+        "van","pickup","trailer","truk","mobil","sepeda","motor"
     ];
-    let ln = name.to_lowercase();
-    keywords.iter().any(|k| ln.contains(k))
+    let n = name.to_lowercase();
+    keys.iter().any(|k| n.contains(k))
 }
 
 fn letterbox_rgb(
     rgb: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     dst_size: u32,
 ) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, f32, u32, u32) {
-    // Letterbox ke persegi dst_size x dst_size
     let (w, h) = (rgb.width() as f32, rgb.height() as f32);
     let s = (dst_size as f32 / w).min(dst_size as f32 / h);
     let nw = (w * s).round() as u32;
     let nh = (h * s).round() as u32;
+
     let resized = imageops::resize(rgb, nw, nh, imageops::FilterType::Triangle);
-
     let mut canvas = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_pixel(
-        dst_size, dst_size, Rgb([114u8, 114u8, 114u8])
+        dst_size, dst_size, Rgb([114, 114, 114])
     );
-    let dx = ((dst_size - nw) / 2) as u32;
-    let dy = ((dst_size - nh) / 2) as u32;
-
+    let dx = (dst_size - nw) / 2;
+    let dy = (dst_size - nh) / 2;
     imageops::replace(&mut canvas, &resized, dx.into(), dy.into());
     (canvas, s, dx, dy)
 }
 
 fn chw_normalize(inp: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Vec<f32> {
-    // RGB HWC -> CHW float32 [0,1]
+    // RGB HWC -> CHW f32 0..1
     let (w, h) = (inp.width() as usize, inp.height() as usize);
     let mut out = vec![0f32; 3 * w * h];
     for y in 0..h {
         for x in 0..w {
             let p = inp.get_pixel(x as u32, y as u32);
             let idx = y * w + x;
-            out[idx] = p[0] as f32 / 255.0; // R
+            out[idx] = p[0] as f32 / 255.0;         // R
             out[w * h + idx] = p[1] as f32 / 255.0; // G
             out[2 * w * h + idx] = p[2] as f32 / 255.0; // B
         }
@@ -119,7 +109,7 @@ fn iou(a: &Detection, b: &Detection) -> f32 {
 
 fn nms(mut dets: Vec<Detection>, iou_thresh: f32) -> Vec<Detection> {
     dets.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-    let mut keep = Vec::new();
+    let mut keep: Vec<Detection> = Vec::new();
     'outer: for d in dets.into_iter() {
         for k in &keep {
             if d.class_id == k.class_id && iou(&d, k) > iou_thresh {
@@ -131,74 +121,152 @@ fn nms(mut dets: Vec<Detection>, iou_thresh: f32) -> Vec<Detection> {
     keep
 }
 
-/// Decode keluaran YOLO: diasumsikan (1, (5+nc), N) -> kita ubah jadi Vec<Detection>
-/// bbox input di YOLO adalah xywh relatif ke input (640x640)
-fn decode_yolo(
+/// Decode YOLO head yang lazim:
+/// - Bentuk A: (1, (5+nc), N)  -> "rcn": rows=(5+nc), cols=N
+/// - Bentuk B: (1, N, (5+nc))  -> "rnc": rows=N, cols=(5+nc)
+/// Kita deteksi otomatis bentuknya.
+fn decode_yolo_dynamic(
     out: &[f32],
-    num_classes: usize,
-    num_candidates: usize,
+    shape: &[usize],          // contoh [1, 84, 8400] atau [1, 8400, 84]
     conf_t: f32,
-    img_w: u32,
-    img_h: u32,
+    class_names: &[String],
+    img_w: u32, img_h: u32,
     letter_scale: f32,
-    pad_x: u32,
-    pad_y: u32,
+    pad_x: u32, pad_y: u32,
     dst_size: u32,
-    names: &[String],
-) -> Vec<Detection> {
-    // out layout: [ (5+nc) * N ], kita akses sebagai (5+nc, N)
-    let stride = num_candidates; // per row
-    let mut dets = Vec::new();
-    for i in 0..num_candidates {
-        let bx = out[i];                         // center x (0..1) * dst_size
-        let by = out[stride + i];                // center y
-        let bw = out[2 * stride + i];            // w
-        let bh = out[3 * stride + i];            // h
-        let obj = out[4 * stride + i];           // objectness (sigmoid sudah diaplikasikan oleh YOLO ONNX umumnya)
-        // kelas mulai dari 5*stride
-        let mut best_c = 0usize;
-        let mut best_p = 0f32;
-        for c in 0..num_classes {
-            let p = out[(5 + c) * stride + i];
-            if p > best_p {
-                best_p = p;
-                best_c = c;
-            }
-        }
-        let score = obj * best_p;
-        if score < conf_t {
-            continue;
-        }
-        // filter kendaraan saja
-        let cname = names.get(best_c).map(|s| s.as_str()).unwrap_or("");
-        if !is_vehicle(cname) {
-            continue;
-        }
-
-        // xywh (pada kanvas dst_size) -> xyxy pada kanvas -> lalu undo letterbox ke ukuran asli frame
-        let (cx, cy, w, h) = (bx * dst_size as f32, by * dst_size as f32, bw * dst_size as f32, bh * dst_size as f32);
-        let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
-
-        // hapus padding letterbox
-        let fx = (x1 - pad_x as f32).max(0.0);
-        let fy = (y1 - pad_y as f32).max(0.0);
-        let fx2 = (x2 - pad_x as f32).max(0.0);
-        let fy2 = (y2 - pad_y as f32).max(0.0);
-
-        // scale balik ke ukuran frame asli
-        let inv = 1.0 / letter_scale;
-        x1 = (fx * inv).clamp(0.0, img_w as f32 - 1.0);
-        y1 = (fy * inv).clamp(0.0, img_h as f32 - 1.0);
-        x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
-        y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
-
-        dets.push(Detection { x1, y1, x2, y2, score, class_id: best_c });
+) -> Result<Vec<Detection>> {
+    if shape.len() != 3 || shape[0] != 1 {
+        bail!("shape output tidak didukung: {:?}", shape);
     }
-    dets
+    let (a, b) = (shape[1], shape[2]);
+    let nc_try1 = a.checked_sub(5).unwrap_or(0);
+    let nc_try2 = b.checked_sub(5).unwrap_or(0);
+
+    let mut dets = Vec::new();
+
+    if nc_try1 > 0 {
+        // Bentuk A: (1, 5+nc, N)
+        let num_classes = nc_try1;
+        let n = b;
+        let stride = n;
+
+        for i in 0..n {
+            let bx = out[i];
+            let by = out[stride + i];
+            let bw = out[2 * stride + i];
+            let bh = out[3 * stride + i];
+            let obj = out[4 * stride + i];
+
+            // kelas
+            let mut best_c = 0usize;
+            let mut best_p = 0f32;
+            for c in 0..num_classes {
+                let p = out[(5 + c) * stride + i];
+                if p > best_p { best_p = p; best_c = c; }
+            }
+            let score = obj * best_p;
+            if score < conf_t { continue; }
+
+            let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
+            if !is_vehicle(cname) { continue; }
+
+            // xywh (kanvas) -> xyxy frame asli (undo letterbox)
+            let (cx, cy, w, h) = (bx * dst_size as f32, by * dst_size as f32, bw * dst_size as f32, bh * dst_size as f32);
+            let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+
+            let fx = (x1 - pad_x as f32).max(0.0);
+            let fy = (y1 - pad_y as f32).max(0.0);
+            let fx2 = (x2 - pad_x as f32).max(0.0);
+            let fy2 = (y2 - pad_y as f32).max(0.0);
+
+            let inv = 1.0 / letter_scale;
+            x1 = (fx * inv).clamp(0.0, img_w as f32 - 1.0);
+            y1 = (fy * inv).clamp(0.0, img_h as f32 - 1.0);
+            x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
+            y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
+
+            dets.push(Detection { x1, y1, x2, y2, score, class_id: best_c });
+        }
+        return Ok(dets);
+    }
+
+    if nc_try2 > 0 {
+        // Bentuk B: (1, N, 5+nc)
+        let n = a;
+        let channels = b; // 5+nc
+        let num_classes = channels - 5;
+
+        for i in 0..n {
+            let base = i * channels;
+            let bx = out[base + 0];
+            let by = out[base + 1];
+            let bw = out[base + 2];
+            let bh = out[base + 3];
+            let obj = out[base + 4];
+
+            let mut best_c = 0usize;
+            let mut best_p = 0f32;
+            for c in 0..num_classes {
+                let p = out[base + 5 + c];
+                if p > best_p { best_p = p; best_c = c; }
+            }
+            let score = obj * best_p;
+            if score < conf_t { continue; }
+
+            let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
+            if !is_vehicle(cname) { continue; }
+
+            let (cx, cy, w, h) = (bx * dst_size as f32, by * dst_size as f32, bw * dst_size as f32, bh * dst_size as f32);
+            let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+
+            let fx = (x1 - pad_x as f32).max(0.0);
+            let fy = (y1 - pad_y as f32).max(0.0);
+            let fx2 = (x2 - pad_x as f32).max(0.0);
+            let fy2 = (y2 - pad_y as f32).max(0.0);
+
+            let inv = 1.0 / letter_scale;
+            x1 = (fx * inv).clamp(0.0, img_w as f32 - 1.0);
+            y1 = (fy * inv).clamp(0.0, img_h as f32 - 1.0);
+            x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
+            y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
+
+            dets.push(Detection { x1, y1, x2, y2, score, class_id: best_c });
+        }
+        return Ok(dets);
+    }
+
+    bail!("tidak bisa tebak format output YOLO dari shape: {:?}", shape);
 }
 
-#[tokio::main(flavor="multi_thread")]
-async fn main() -> Result<()> {
+fn build_pipeline(device: &str) -> Result<(gst::Pipeline, AppSink)> {
+    gst::init()?;
+
+    // Pipeline simpel: tarik BGR 1280x720 → appsink
+    // Kalau kamera pakai MJPEG, bisa diganti "v4l2src ! image/jpeg ! jpegdec ! …"
+    let pipeline_str = format!(
+        "v4l2src device={} !
+         videoconvert ! video/x-raw,format=BGR !
+         videoscale ! video/x-raw,width=1280,height=720 !
+         queue max-size-buffers=1 leaky=downstream !
+         appsink name=sink emit-signals=false sync=false max-buffers=1 drop=true",
+        device
+    );
+
+    let pipeline = gst::parse::launch(&pipeline_str)
+        .with_context(|| format!("gagal buat pipeline: {pipeline_str}"))?
+        .downcast::<gst::Pipeline>()
+        .map_err(|_| anyhow!("bukan pipeline"))?;
+
+    let appsink = pipeline
+        .by_name("sink")
+        .ok_or_else(|| anyhow!("appsink tidak ditemukan"))?
+        .downcast::<AppSink>()
+        .map_err(|_| anyhow!("appsink downcast gagal"))?;
+
+    Ok((pipeline, appsink))
+}
+
+fn main() -> Result<()> {
     let args = Args::parse();
 
     // 1) load classes
@@ -209,161 +277,126 @@ async fn main() -> Result<()> {
         bail!("classes.json kosong");
     }
 
-    // 2) init gstreamer
-    gst::init()?;
-
-    // pipeline USB camera → BGR → appsink
-    // NB: untuk zero-copy NVMM perlu jalur khusus; versi simpel ini tarik CPU memory (cukup untuk demo).
-    let pipeline_str = format!(
-        "v4l2src device={} ! \
-         videoconvert ! video/x-raw,format=BGR ! \
-         videoscale ! video/x-raw,width=1280,height=720 ! \
-         queue max-size-buffers=1 leaky=downstream ! \
-         appsink name=sink emit-signals=false sync=false max-buffers=1 drop=true",
-        args.device
-    );
-
-    let pipeline = gst::parse::launch(&pipeline_str)
-        .with_context(|| format!("gagal buat pipeline: {}", pipeline_str))?
-        .downcast::<gst::Pipeline>()
-        .unwrap();
-
-    let appsink = pipeline
-        .by_name("sink")
-        .unwrap()
-        .downcast::<AppSink>()
-        .unwrap();
-
+    // 2) siapkan GStreamer
+    let (pipeline, appsink) = build_pipeline(&args.device)?;
     pipeline.set_state(gst::State::Playing)?;
 
-    // 3) TensorRT: load engine dari .plan
-    let plan_bytes = fs::read(&args.engine)
-        .with_context(|| format!("gagal baca engine: {:?}", args.engine))?;
+    // 3) siapkan ONNX (Tract)
+    //    Asumsi input: [1,3,IMG,IMG], f32
+    let mut model = tract_onnx::onnx()
+        .model_for_path(&args.onnx)
+        .with_context(|| format!("gagal load onnx: {:?}", &args.onnx))?;
 
-    // Runtime & Engine
-    let runtime = Runtime::new().await;
-    let engine: Engine = runtime.deserialize_engine(&plan_bytes).await
-        .context("deserialize engine TensorRT gagal")?;
+    model.set_input_fact(
+        0,
+        InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, args.imgsz as usize, args.imgsz as usize))
+    )?;
 
-    // Ambil nama IO tensor otomatis (asumsi 1 input, 1 output)
-    let mut input_name = None;
-    let mut output_name = None;
-    let num_io = engine.num_io_tensors();
-    for i in 0..num_io {
-        let name = engine.io_tensor_name(i);
-        match engine.tensor_io_mode(&name) {
-            TensorIoMode::Input => input_name = Some(name),
-            TensorIoMode::Output => output_name = Some(name),
-        }
-    }
-    let input_name = input_name.context("tidak menemukan input tensor pada engine")?;
-    let output_name = output_name.context("tidak menemukan output tensor pada engine")?;
+    let model = model
+        .into_optimized()?
+        .into_runnable()?;
 
-    // Bentuk output untuk alokasi buffer host
-    let out_shape = engine.tensor_shape(&output_name); // contoh: [1, (5+nc), N]
-    if out_shape.len() != 3 {
-        eprintln!("PERINGATAN: shape output bukan 3 dimensi, shape={:?}", out_shape);
-    }
-    let (out_b, out_c, out_n) = (out_shape[0], out_shape[1], out_shape[2]);
-    let out_elems = out_b * out_c * out_n;
-
-    // Buat execution context + stream CUDA
-    // Catatan: API detail bisa sedikit beda antar versi crate; konsepnya:
-    // - set alamat device buffer dengan nama tensor
-    // - enqueue async (v3) pada stream
-    let mut ctx = engine.create_execution_context()
-        .await
-        .context("gagal buat execution context")?;
-    let stream = Stream::new().await;
-
-    // Siapkan buffer host untuk output (copy dari device)
-    let mut out_host: Vec<f32> = vec![0f32; out_elems];
-
+    // 4) loop ambil frame → preprocess → infer → postprocess
+    let mut last = Instant::now();
     let mut frame_idx: u64 = 0;
-    let mut last_t = Instant::now();
 
     loop {
-        // 4) Ambil sample frame
-        let sample = match appsink.try_pull_sample(Duration::from_millis(500)) {
+        // AppSink::try_pull_sample minta Option<ClockTime>, bukan std::Duration
+        let sample = match appsink.try_pull_sample(Some(gst::ClockTime::from_mseconds(500))) {
             Some(s) => s,
             None => {
-                eprintln!("timeout tarik frame…");
+                eprintln!("timeout ambil frame…");
                 continue;
             }
         };
 
-        let buffer = sample.buffer().context("sample tanpa buffer")?;
-        let caps = sample.caps().context("sample tanpa caps")?;
-        let s = caps.structure(0).context("caps tanpa structure")?;
-        let (w, h) = (s.get::<i32>("width").unwrap() as u32, s.get::<i32>("height").unwrap() as u32);
+        let buffer = match sample.buffer() {
+            Some(b) => b,
+            None => { eprintln!("buffer kosong"); continue; }
+        };
 
-        // Map BGR bytes
-        let map = buffer.map_readable().context("gagal map buffer")?;
+        let caps = match sample.caps() {
+            Some(c) => c,
+            None => { eprintln!("caps kosong"); continue; }
+        };
+
+        let s = match caps.structure(0) {
+            Some(st) => st,
+            None => { eprintln!("caps.structure(0) kosong"); continue; }
+        };
+
+        let w: u32 = s.get::<i32>("width").unwrap_or(1280) as u32;
+        let h: u32 = s.get::<i32>("height").unwrap_or(720) as u32;
+
+        let map = match buffer.map_readable() {
+            Ok(m) => m,
+            Err(_) => { eprintln!("map buffer gagal"); continue; }
+        };
         let bgr = map.as_slice();
 
-        // BGR -> RGB image buffer
         if bgr.len() != (w * h * 3) as usize {
-            eprintln!("ukuran buffer tak sesuai: {} vs {}", bgr.len(), w*h*3);
+            eprintln!("ukuran buffer tidak cocok ({} vs {})", bgr.len(), w*h*3);
             continue;
         }
-        let mut rgb_data = vec![0u8; (w * h * 3) as usize];
-        for i in 0..(w * h) as usize {
-            rgb_data[3*i]   = bgr[3*i + 2]; // R
-            rgb_data[3*i+1] = bgr[3*i + 1]; // G
-            rgb_data[3*i+2] = bgr[3*i + 0]; // B
-        }
-        let rgb_img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_raw(w, h, rgb_data)
-            .context("gagal buat RGB image")?;
 
-        // 5) Preprocess (letterbox ke args.imgsz)
+        // BGR -> RGB
+        let mut rgb_data = vec![0u8; (w*h*3) as usize];
+        for i in 0..(w*h) as usize {
+            rgb_data[3*i]   = bgr[3*i + 2];
+            rgb_data[3*i+1] = bgr[3*i + 1];
+            rgb_data[3*i+2] = bgr[3*i + 0];
+        }
+        let rgb_img: ImageBuffer<Rgb<u8>, _> = match ImageBuffer::from_raw(w, h, rgb_data) {
+            Some(im) => im,
+            None => { eprintln!("buat RGB image gagal"); continue; }
+        };
+
+        // Letterbox ke imgsz
         let (letter, scale, pad_x, pad_y) = letterbox_rgb(&rgb_img, args.imgsz);
         let input_chw = chw_normalize(&letter);
 
-        // 6) Inference (copy H->D, set tensor, enqueue, copy D->H)
-        // NB: API alokasi device buffer/ set address pada async-tensorrt bersandar pada versi crate.
-        // Skema umum: buat DeviceBuffer<f32> untuk input & output, set alamat via ctx.set_tensor_address(&name, dev_ptr),
-        // lalu ctx.enqueue_async_v3(stream).
-        // Di sini kita gunakan helper dari async-cuda untuk memindahkan data sinkron (sederhana untuk contoh).
-        use async_cuda::memory::{DeviceBuffer, CopyDestination};
+        // Bentuk tensor [1,3,H,W]
+        let arr: Array4<f32> = Array4::from_shape_vec(
+            (1, 3, args.imgsz as usize, args.imgsz as usize),
+            input_chw
+        ).context("shape input mismatch")?;
+        let input = Tensor::from(arr);
 
-        let mut d_input: DeviceBuffer<f32> = DeviceBuffer::from_slice(&input_chw).await
-            .context("alokasi/copy input ke device gagal")?;
-        let mut d_output: DeviceBuffer<f32> = DeviceBuffer::new(out_elems).await
-            .context("alokasi output device gagal")?;
+        // Inference
+        let outputs = model.run(tvec!(input))?;
+        let out = outputs[0].to_array_view::<f32>()?; // NdArray view
 
-        // Set alamat tensor (nama input/output diambil dari engine)
-        ctx.set_tensor_address(&input_name, d_input.as_device_ptr() as u64)
-            .await
-            .context("set alamat tensor input gagal")?;
-        ctx.set_tensor_address(&output_name, d_output.as_device_ptr() as u64)
-            .await
-            .context("set alamat tensor output gagal")?;
+        // Ambil shape & data jadi slice
+        let shape = out.shape().to_vec(); // contoh [1,84,8400] atau [1,8400,84]
+        let mut flat: Vec<f32> = vec![0.0; out.len()];
+        // copy ke buffer datar
+        let mut view = out.into_owned();
+        // (ngakalin borrow): isi flat dari view
+        let slice = view.as_slice_mut().ok_or_else(|| anyhow!("gagal ambil slice output"))?;
+        flat.copy_from_slice(slice);
 
-        // Jalankan (v3) pada stream
-        ctx.enqueue_v3(&stream).await.context("enqueue_v3 gagal")?;
-
-        // Sinkron & salin hasil ke host
-        stream.synchronize().await;
-        d_output.copy_to(&mut out_host).await
-            .context("copy output ke host gagal")?;
-
-        // 7) Post-process YOLO
-        let num_classes = classes.0.len();
-        let dst = args.imgsz;
-        let dets_raw = decode_yolo(
-            &out_host, num_classes, out_n, args.conf,
-            w, h, scale, pad_x, pad_y, dst, &classes.0,
-        );
+        // Decode sesuai shape
+        let dets_raw = match decode_yolo_dynamic(
+            &flat,
+            &shape,
+            args.conf,
+            &classes.0,
+            w, h, scale, pad_x, pad_y, args.imgsz
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("decode gagal: {e}");
+                continue;
+            }
+        };
         let dets = nms(dets_raw, args.iou);
-
-        // 8) Hitung kendaraan per frame
         let count = dets.len();
-        frame_idx += 1;
 
+        frame_idx += 1;
         if args.verbose {
             let now = Instant::now();
-            let dt = now.duration_since(last_t).as_secs_f32();
-            last_t = now;
+            let dt = now.duration_since(last).as_secs_f32();
+            last = now;
             let fps = if dt > 0.0 { 1.0/dt } else { 0.0 };
             println!("[frame {frame_idx}] vehicles={count}  fps={fps:.1}");
         } else {
