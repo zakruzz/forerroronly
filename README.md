@@ -1193,3 +1193,172 @@ bash /tmp/jetson_gpu_audit.sh
 	"endColumn": 47,
 	"origin": "extHost1"
 }]
+
+warning: unused import: `MatTraitManual`
+ --> src/main.rs:3:72
+  |
+3 | ...Const, MatTraitConstManual, MatTraitManual, Size, Vec3b},
+  |                                ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0599]: no method named `context` found for struct `async_tensorrt::Runtime` in the current scope
+   --> src/main.rs:131:35
+    |
+131 |     let rt = Runtime::new().await.context("create TRT runtime")?;
+    |                                   ^^^^^^^ method not found in `async_tensorrt::Runtime`
+
+error[E0599]: no function or associated item named `is_opened` found for struct `VideoCapture` in the current scope
+    --> src/main.rs:42:32
+     |
+  42 |     if !videoio::VideoCapture::is_opened(&cap)? {
+     |                                ^^^^^^^^^ function or associated item not found in `VideoCapture`
+     |
+note: if you're trying to build a new `VideoCapture` consider using one of the following associated functions:
+      VideoCapture::default
+      VideoCapture::from_file
+      VideoCapture::from_file_def
+      VideoCapture::from_file_with_params
+      and 3 others
+    --> /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1210:3
+     |
+1210 |         pub fn default() -> Result<crate::videoio::VideoCapture> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1245 |         pub fn from_file(filename: &str, api_preference: i32) -> Result<crate::videoio::VideoCapture> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1282 |         pub fn from_file_def(filename: &str) -> Result<crate::videoio::VideoCapture> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1305 |         pub fn from_file_with_params(filename: &str, api_preference: i32, params: &core::Vector<i32>) -> Result<crate::videoio::VideoCapture> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: items from traits can only be used if the trait is in scope
+help: trait `VideoCaptureTraitConst` which provides `is_opened` is implemented but not in scope; perhaps you want to import it
+     |
+   1 + use opencv::prelude::VideoCaptureTraitConst;
+     |
+
+error[E0599]: no method named `set` found for struct `VideoCapture` in the current scope
+    --> src/main.rs:46:17
+     |
+  46 |     let _ = cap.set(videoio::CAP_PROP_FRAME_WIDTH, 1280.0);
+     |                 ^^^
+     |
+    ::: /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1793:6
+     |
+1793 |         fn set(&mut self, prop_id: i32, value: f64) -> Result<bool> {
+     |            --- the method is available for `VideoCapture` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: there is a method `get` with a similar name, but with different arguments
+    --> /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1492:3
+     |
+1492 |         fn get(&self, prop_id: i32) -> Result<f64> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: trait `VideoCaptureTrait` which provides `set` is implemented but not in scope; perhaps you want to import it
+     |
+   1 + use opencv::prelude::VideoCaptureTrait;
+     |
+
+error[E0599]: no method named `set` found for struct `VideoCapture` in the current scope
+    --> src/main.rs:47:17
+     |
+  47 |     let _ = cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 720.0);
+     |                 ^^^
+     |
+    ::: /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1793:6
+     |
+1793 |         fn set(&mut self, prop_id: i32, value: f64) -> Result<bool> {
+     |            --- the method is available for `VideoCapture` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: there is a method `get` with a similar name, but with different arguments
+    --> /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1492:3
+     |
+1492 |         fn get(&self, prop_id: i32) -> Result<f64> {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: trait `VideoCaptureTrait` which provides `set` is implemented but not in scope; perhaps you want to import it
+     |
+   1 + use opencv::prelude::VideoCaptureTrait;
+     |
+
+error[E0599]: no method named `read` found for struct `VideoCapture` in the current scope
+    --> src/main.rs:52:13
+     |
+  52 |         cap.read(&mut frame)?;
+     |             ^^^^ method not found in `VideoCapture`
+     |
+    ::: /home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/target/debug/build/opencv-747386007b8b1744/out/opencv/videoio.rs:1772:6
+     |
+1772 |         fn read(&mut self, image: &mut impl ToOutputArray) -> Result<bool> {
+     |            ---- the method is available for `VideoCapture` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `VideoCaptureTrait` which provides `read` is implemented but not in scope; perhaps you want to import it
+     |
+   1 + use opencv::prelude::VideoCaptureTrait;
+     |
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+  --> src/main.rs:62:22
+   |
+62 |         let in_dev = DeviceBuffer::from_slice(&input_tensor)
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^--------------- argument #2 of type `&async_cuda::Stream` is missing
+   |
+note: associated function defined here
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-cuda-0.6.1/src/memory/device.rs:61:18
+   |
+61 |     pub async fn from_slice(slice: &[T], stream: &Stream) -> Result<Self> {
+   |                  ^^^^^^^^^^
+help: provide the argument
+   |
+62 |         let in_dev = DeviceBuffer::from_slice(&input_tensor, /* &async_cuda::Stream */)
+   |                                                            +++++++++++++++++++++++++++
+
+error[E0599]: no method named `context` found for opaque type `impl Future<Output = Result<..., ...>>` in the current scope
+  --> src/main.rs:63:14
+   |
+62 |           let in_dev = DeviceBuffer::from_slice(&input_tensor)
+   |  ______________________-
+63 | |             .context("copy H->D input tensor")?;
+   | |             -^^^^^^^ method not found in `impl Future<Output = Result<..., ...>>`
+   | |_____________|
+   |
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+  --> src/main.rs:68:27
+   |
+68 |         let mut out_dev = DeviceBuffer::from_slice(&out_host)
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^----------- argument #2 of type `&async_cuda::Stream` is missing
+   |
+note: associated function defined here
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-cuda-0.6.1/src/memory/device.rs:61:18
+   |
+61 |     pub async fn from_slice(slice: &[T], stream: &Stream) -> Result<Self> {
+   |                  ^^^^^^^^^^
+help: provide the argument
+   |
+68 |         let mut out_dev = DeviceBuffer::from_slice(&out_host, /* &async_cuda::Stream */)
+   |                                                             +++++++++++++++++++++++++++
+
+error[E0599]: no method named `context` found for opaque type `impl Future<Output = Result<..., ...>>` in the current scope
+  --> src/main.rs:69:14
+   |
+68 |           let mut out_dev = DeviceBuffer::from_slice(&out_host)
+   |  ___________________________-
+69 | |             .context("alloc D output buffer")?;
+   | |             -^^^^^^^ method not found in `impl Future<Output = Result<..., ...>>`
+   | |_____________|
+   |
+
+warning: unused import: `MatTraitConstManual`
+ --> src/main.rs:3:51
+  |
+3 |     core::{self, BorderTypes, Mat, MatTraitConst, MatTraitConstManual, Ma...
+  |                                                   ^^^^^^^^^^^^^^^^^^^
+
+Some errors have detailed explanations: E0061, E0599.
+For more information about an error, try `rustc --explain E0061`.
+warning: `veh-counter-rs` (bin "veh-counter-rs") generated 2 warnings
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 9 previous errors; 2 warnings emitted
