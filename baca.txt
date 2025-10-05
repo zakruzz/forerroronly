@@ -726,3 +726,10 @@ help: consider giving `items` an explicit type, where the placeholders `_` are s
 83 |     let items: Box<_> = format_items
    |              ++++++++
 
+
+/usr/src/tensorrt/bin/trtexec --onnx=best.onnx \
+  --saveEngine=best_640_fp16.engine \
+  --fp16 --workspace=4096 \
+  --minShapes=INPUT_NAME:1x3x640x640 \
+  --optShapes=INPUT_NAME:1x3x640x640 \
+  --maxShapes=INPUT_NAME:1x3x640x640
