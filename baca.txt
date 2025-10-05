@@ -700,3 +700,12 @@ warning: build failed, waiting for other jobs to finish...
 
 
 sudo apt install -y tensorrt libnvinfer-dev libnvonnxparsers-dev libnvinfer-plugin-dev
+
+
+
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/jetson_yolo_count$ /usr/src/tensorrt/bin/trtexec --onnx=best.onnx --dumpLayerInfo --verbose | grep -m1 "Binding 0"
+[10/06/2025-01:58:31] [W] * GPU compute time is unstable, with coefficient of variance = 5.01618%.
+[10/06/2025-01:58:31] [W]   If not already in use, locking GPU clock frequency or adding --useSpinWait may improve the stability.
+
