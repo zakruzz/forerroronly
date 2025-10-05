@@ -503,3 +503,11 @@ help: call `Into::into` on this expression to convert `tract_onnx::prelude::Tens
 For more information about this error, try `rustc --explain E0308`.
 warning: `jetson_yolo_count` (bin "jetson_yolo_count") generated 1 warning
 error: could not compile `jetson_yolo_count` (bin "jetson_yolo_count") due to 2 previous errors; 1 warning emitted
+
+
+# jalankan
+./target/release/jetson_yolo_count \
+  --onnx /path/ke/best.onnx \
+  --classes /path/ke/classes.json \
+  --device /dev/video0 \
+  --imgsz 640 --conf 0.25 --iou 0.45 --verbose
