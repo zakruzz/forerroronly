@@ -760,3 +760,27 @@ warning: use of deprecated method `ndarray::impl_owned_array::<impl ndarray::Arr
 For more information about this error, try `rustc --explain E0282`.
 warning: `onnx_io_inspect` (bin "onnx_io_inspect") generated 1 warning
 error: could not compile `onnx_io_inspect` (bin "onnx_io_inspect") due to 1 previous error; 1 warning emitted
+
+
+
+error[E0277]: the trait bound `ArrayBase<OwnedRepr<f32>, Dim<[usize; 4]>>: WriteNpyExt` is not satisfied
+  --> src/main.rs:46:26
+   |
+46 |     write_npy(&out_path, &arr).with_context(|| format!("write {:?}", out_path))?;
+   |     ---------            ^^^^ the trait `WriteNpyExt` is not implemented for `ArrayBase<OwnedRepr<f32>, Dim<[usize; 4]>>`
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `WriteNpyExt` is implemented for `ndarray::ArrayBase<S, D>`
+note: required by a bound in `ndarray_npy::write_npy`
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ndarray-npy-0.8.1/src/npy/mod.rs:63:8
+   |
+60 | pub fn write_npy<P, T>(path: P, array: &T) -> Result<(), WriteNpyError>
+   |        --------- required by a bound in this function
+...
+63 |     T: WriteNpyExt,
+   |        ^^^^^^^^^^^ required by this bound in `write_npy`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `gen_npy` (bin "gen_npy") due to 1 previous error
+
