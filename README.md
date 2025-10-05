@@ -1431,3 +1431,41 @@ Some errors have detailed explanations: E0308, E0599.
 For more information about an error, try `rustc --explain E0308`.
 warning: `veh-counter-rs` (bin "veh-counter-rs") generated 1 warning
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 4 previous errors; 1 warning emitted
+
+
+
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/veh-counter-rs$ cargo build
+   Compiling veh-counter-rs v0.1.0 (/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs)
+error[E0432]: unresolved import `async_tensorrt::execution_context`
+  --> src/main.rs:14:5
+   |
+14 |     execution_context::ExecutionContext,
+   |     ^^^^^^^^^^^^^^^^^ could not find `execution_context` in `async_tensorrt`
+
+error[E0599]: no method named `clone` found for struct `async_tensorrt::Engine` in the current scope
+  --> src/main.rs:37:56
+   |
+37 |     let mut ctx = ExecutionContext::from_engine(engine.clone())
+   |                                                        ^^^^^ method not found in `async_tensorrt::Engine`
+
+error[E0308]: mismatched types
+   --> src/main.rs:89:22
+    |
+ 89 |             .copy_to(&mut out_host, &stream)
+    |              ------- ^^^^^^^^^^^^^ expected `&mut HostBuffer<f32>`, found `&mut Vec<f32>`
+    |              |
+    |              arguments to this method are incorrect
+    |
+    = note: expected mutable reference `&mut async_cuda::HostBuffer<f32>`
+               found mutable reference `&mut Vec<f32>`
+note: method defined here
+   --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-cuda-0.6.1/src/memory/device.rs:174:18
+    |
+174 |     pub async fn copy_to(&self, other: &mut HostBuffer<T>, stream: &Str...
+    |                  ^^^^^^^
+
+Some errors have detailed explanations: E0308, E0432, E0599.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 3 previous errors
