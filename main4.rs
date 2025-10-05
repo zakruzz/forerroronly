@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use opencv::{
-    core::{self, Mat, MatTraitConst, MatTraitConstManual, Scalar, Size, Vector},
+    core::{self, Mat, MatTrait, MatTraitConst, MatTraitConstManual, Scalar, Size, Vector},
     dnn, imgcodecs, imgproc, prelude::*,
 };
 use serde_json::Value;
@@ -13,10 +13,13 @@ fn letterbox_bgr(img:&Mat, dst:i32)->Result<(Mat, f32, i32, i32)>{
     let w=img.cols(); let h=img.rows();
     let s=(dst as f32 / w as f32).min(dst as f32 / h as f32);
     let nw=((w as f32)*s).round() as i32; let nh=((h as f32)*s).round() as i32;
+
     let mut resized=Mat::default();
     imgproc::resize(img, &mut resized, Size::new(nw,nh), 0.0,0.0, imgproc::INTER_LINEAR)?;
+
     let left=(dst-nw)/2; let top=(dst-nh)/2;
     let right=dst-nw-left; let bottom=dst-nh-top;
+
     let mut canvas=Mat::default();
     core::copy_make_border(&resized,&mut canvas, top,bottom,left,right,
         core::BORDER_CONSTANT, Scalar::new(114.0,114.0,114.0,0.0))?;
@@ -62,99 +65,54 @@ fn draw_box(img:&mut Mat, d:&Det, label:&str)->Result<()>{
 
 #[inline] fn sigmoid(x:f32)->f32 { 1.0/(1.0+(-x).exp()) }
 
-/// Decode JALUR-A: asumsi output SUDAH ter-decode (xywh/xyxy, norm/pixel)
-fn decode_decoded<F>(
-    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
-    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, dst:i32,
-    xyxy:bool, normalized:bool
-)->Result<Vec<Det>>
-where F: Fn(usize,usize)->f32 {
-    let nc=c.checked_sub(4).ok_or_else(||anyhow!("C<4"))?;
+/// Decode 1 tampilan matrix (rows=c, cols=n) dengan asumsi bbox=XYWH (umum YOLOv8).
+/// Otomatis deteksi: normalized (0..1) vs pixel (0..imgsz).
+fn decode_matrix_cxn(
+    m:&Mat, c:usize, n:usize, conf:f32, class_names:&[String],
+    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, imgsz:i32
+)->Result<Vec<Det>>{
+    // ambil pointer tiap "row"
+    let row = |r:usize| -> Result<&[f32]> {
+        let rmat = m.row(r as i32)?;
+        Ok(rmat.data_typed()?)
+    };
+
+    let x = row(0)?; let y = row(1)?; let w = row(2)?; let h = row(3)?;
+    // deteksi skala bbox
+    let mut mx = 0f32;
+    for i in 0..n { mx = mx.max(x[i].abs().max(y[i].abs()).max(w[i].abs()).max(h[i].abs())); }
+    let in_pixels = mx > 1.5;
+
+    let nc = c - 4;
+    // siapkan view kelas
+    let cls_rows: Vec<&[f32]> = (0..nc).map(|k| row(4+k).unwrap()).collect();
+
     let mut out=Vec::new();
     for i in 0..n {
-        let (mut x1,mut y1,mut x2,mut y2) = if xyxy {
-            (get(0,i),get(1,i),get(2,i),get(3,i))
-        } else {
-            let (mut cx,mut cy,mut w,mut h)=(get(0,i),get(1,i),get(2,i),get(3,i));
-            if normalized { cx*=dst as f32; cy*=dst as f32; w*=dst as f32; h*=dst as f32; }
-            (cx-w/2.0, cy-h/2.0, cx+w/2.0, cy+h/2.0)
-        };
-        if xyxy && normalized { x1*=dst as f32; y1*=dst as f32; x2*=dst as f32; y2*=dst as f32; }
+        // bbox XYWH → XYXY di kanvas
+        let mut cx=x[i]; let mut cy=y[i]; let mut ww=w[i]; let mut hh=h[i];
+        if !in_pixels { cx*=imgsz as f32; cy*=imgsz as f32; ww*=imgsz as f32; hh*=imgsz as f32; }
+        let mut x1=cx-ww/2.0; let mut y1=cy-hh/2.0;
+        let mut x2=cx+ww/2.0; let mut y2=cy+hh/2.0;
 
-        // kelas terbaik (anggap logits → sigmoid)
+        // pilih kelas terbaik (anggap logits → sigmoid)
         let mut best_c=0usize; let mut best_p=f32::MIN;
-        for cc in 0..nc { let p=sigmoid(get(4+cc,i)); if p>best_p{best_p=p;best_c=cc;} }
-        if best_p<conf { continue; }
-
-        // mapping balik letterbox
-        let fx=(x1-pad_x as f32).max(0.0); let fy=(y1-pad_y as f32).max(0.0);
-        let fx2=(x2-pad_x as f32).max(0.0); let fy2=(y2-pad_y as f32).max(0.0);
-        let inv=1.0/scale;
-        x1=(fx*inv).clamp(0.0,(orig_w-1) as f32);
-        y1=(fy*inv).clamp(0.0,(orig_h-1) as f32);
-        x2=(fx2*inv).clamp(0.0,(orig_w-1) as f32);
-        y2=(fy2*inv).clamp(0.0,(orig_h-1) as f32);
-
-        if (x2-x1)>=2.0 && (y2-y1)>=2.0 { out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c}); }
-    }
-    Ok(out)
-}
-
-/// Decode JALUR-B: output RAW-HEAD YOLOv8 (belum grid/stride)
-fn decode_raw_with_grid<F>(
-    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
-    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, dst:i32
-)->Result<Vec<Det>>
-where F: Fn(usize,usize)->f32 {
-    let nc=c.checked_sub(4).ok_or_else(||anyhow!("C<4"))?;
-
-    // cek bahwa N cocok 80^2 + 40^2 + 20^2
-    let n80=(dst/8) as usize; let n40=(dst/16) as usize; let n20=(dst/32) as usize;
-    let s1=n80*n80; let s2=n40*n40; let s3=n20*n20;
-    if n != s1+s2+s3 { bail!("N {} tidak cocok dengan 80^2+40^2+20^2 ({}).", n, s1+s2+s3); }
-
-    let mut out=Vec::new();
-    let mut base=0usize;
-
-    for (nx, ny, stride) in [(n80,n80,8), (n40,n40,16), (n20,n20,32)] {
-        for gy in 0..ny {
-            for gx in 0..nx {
-                let i = base + gy*nx + gx;
-
-                // xywh decode sesuai YOLOv8 head
-                let px = sigmoid(get(0,i))*2.0 - 0.5;
-                let py = sigmoid(get(1,i))*2.0 - 0.5;
-                let pw = (sigmoid(get(2,i))*2.0).powi(2);
-                let ph = (sigmoid(get(3,i))*2.0).powi(2);
-
-                let cx = (px + gx as f32) * stride as f32;
-                let cy = (py + gy as f32) * stride as f32;
-                let w  = pw * stride as f32;
-                let h  = ph * stride as f32;
-
-                let mut x1 = cx - w/2.0;
-                let mut y1 = cy - h/2.0;
-                let mut x2 = cx + w/2.0;
-                let mut y2 = cy + h/2.0;
-
-                // kelas terbaik (logits → sigmoid)
-                let mut best_c=0usize; let mut best_p=f32::MIN;
-                for cc in 0..nc { let p=sigmoid(get(4+cc,i)); if p>best_p { best_p=p; best_c=cc; } }
-                if best_p < conf { continue; }
-
-                // mapping balik letterbox
-                let fx=(x1-pad_x as f32).max(0.0); let fy=(y1-pad_y as f32).max(0.0);
-                let fx2=(x2-pad_x as f32).max(0.0); let fy2=(y2-pad_y as f32).max(0.0);
-                let inv=1.0/scale;
-                x1=(fx*inv).clamp(0.0,(orig_w-1) as f32);
-                y1=(fy*inv).clamp(0.0,(orig_h-1) as f32);
-                x2=(fx2*inv).clamp(0.0,(orig_w-1) as f32);
-                y2=(fy2*inv).clamp(0.0,(orig_h-1) as f32);
-
-                if (x2-x1)>=2.0 && (y2-y1)>=2.0 { out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c}); }
-            }
+        for cix in 0..nc {
+            let p = sigmoid(cls_rows[cix][i]);
+            if p>best_p { best_p=p; best_c=cix; }
         }
-        base += nx*ny;
+        if best_p < conf { continue; }
+
+        // map balik letterbox → gambar asli
+        let inv = 1.0/scale;
+        x1=((x1 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
+        y1=((y1 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
+        x2=((x2 - pad_x as f32).max(0.0) * inv).clamp(0.0,(orig_w-1) as f32);
+        y2=((y2 - pad_y as f32).max(0.0) * inv).clamp(0.0,(orig_h-1) as f32);
+
+        if (x2-x1)>=2.0 && (y2-y1)>=2.0 {
+            out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c});
+        }
     }
     Ok(out)
 }
@@ -193,7 +151,7 @@ fn main()->Result<()>{
     let blob=dnn::blob_from_image(&letter, 1.0/255.0, Size::new(imgsz,imgsz),
                                   Scalar::default(), true,false, core::CV_32F)?;
 
-    // load onnx
+    // load onnx (prefer CUDA bila tersedia)
     let mut net=dnn::read_net_from_onnx(onnx.to_str().unwrap())
         .with_context(||format!("read onnx {:?}", onnx))?;
     if net.set_preferable_backend(dnn::DNN_BACKEND_CUDA).is_ok() &&
@@ -211,7 +169,7 @@ fn main()->Result<()>{
     let mut outs:Vector<Mat>=Vector::new();
     net.forward(&mut outs, &names)?;
     if outs.len()==0 { bail!("model tidak mengembalikan output"); }
-    let out=outs.get(0)?; // [1, 8, N] atau [1, N, 8]
+    let out=outs.get(0)?; // tensor utama
 
     // buffer
     let total = out.total() as usize;
@@ -219,65 +177,33 @@ fn main()->Result<()>{
     if total % c != 0 { bail!("elemen output {} tidak habis dibagi C={}", total, c); }
     let n = total / c;
 
-    // Dua layout: C×N dan N×C
-    let get_cxn = |ch:usize, idx:usize| -> f32 { flat[ch*n + idx] };
-    let get_nxc = |ch:usize, idx:usize| -> f32 { flat[idx*c + ch] };
+    // === KUNCI: reshape 2 tampilan ===
+    // Tampilan-1: rows=C, cols=N  (C×N)
+    let m_cxn = out.reshape(1, c as i32)?;
+    if m_cxn.cols() != (n as i32) { bail!("reshape C×N gagal"); }
+    let cand1 = decode_matrix_cxn(&m_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
 
-    // Kandidat dari JALUR-B (raw head, grid/stride)
-    let mut cands: Vec<(String, Vec<Det>)> = Vec::new();
-    if let Ok(v) = decode_raw_with_grid(&get_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz) {
-        cands.push(("RAW C×N".into(), v));
-    }
-    if let Ok(v) = decode_raw_with_grid(&get_nxc, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz) {
-        cands.push(("RAW N×C".into(), v));
-    }
+    // Tampilan-2: rows=N, cols=C  (N×C)
+    // Kita reshape ulang dari buffer awal supaya tampilan benar.
+    // Caranya: buat Mat baru dari slice flatten lalu reshape rows=N.
+    let m_all = Mat::from_slice(flat)?;               // 1 x total
+    let m_nxc = m_all.reshape(1, n as i32)?;          // rows=N, cols=C
+    if m_nxc.cols() != (c as i32) { bail!("reshape N×C gagal"); }
+    // agar interface decode mirip C×N, kita transpose jadi C×N
+    let mut m_nxc_t = Mat::default();
+    core::transpose(&m_nxc, &mut m_nxc_t)?;
+    let cand2 = decode_matrix_cxn(&m_nxc_t, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz)?;
 
-    // Kandidat dari JALUR-A (sudah decoded)
-    for &(xyxy, norm, name) in &[
-        (false,true,  "DEC XYWH norm C×N"),
-        (true, true,  "DEC XYXY norm C×N"),
-        (false,false, "DEC XYWH pix  C×N"),
-        (true, false, "DEC XYXY pix  C×N"),
-    ]{
-        if let Ok(v) = decode_decoded(&get_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz, xyxy, norm) {
-            cands.push((name.into(), v));
-        }
-    }
-    for &(xyxy, norm, name) in &[
-        (false,true,  "DEC XYWH norm N×C"),
-        (true, true,  "DEC XYXY norm N×C"),
-        (false,false, "DEC XYWH pix  N×C"),
-        (true, false, "DEC XYXY pix  N×C"),
-    ]{
-        if let Ok(v) = decode_decoded(&get_nxc, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz, xyxy, norm) {
-            cands.push((name.into(), v));
-        }
-    }
+    // pilih terbaik
+    let (v1,a1) = quality_score(&cand1, orig_w, orig_h);
+    let (v2,a2) = quality_score(&cand2, orig_w, orig_h);
+    let mut dets = if v2>v1 || (v1==v2 && a2>a1) { cand2 } else { cand1 };
 
-    // pilih terbaik (valid terbanyak, lalu skor rata-rata)
-    let mut best_idx=0usize; let mut best_valid=0usize; let mut best_avg=0.0f32;
-    for (i, (_nm, v)) in cands.iter().enumerate() {
-        let (valid, avg) = quality_score(v, orig_w, orig_h);
-        if valid > best_valid || (valid==best_valid && avg > best_avg) {
-            best_idx = i; best_valid = valid; best_avg = avg;
-        }
-    }
-    let (chosen_name, mut dets) = {
-        let (nm, v) = &cands[best_idx];
-        (nm.clone(), v.clone())
-    };
-    eprintln!("[info] decode chosen: {} | valid={}, avg={:.3}", chosen_name, best_valid, best_avg);
-
-    // NMS & gambar SEMUA kelas (License_Plate juga ikut)
+    // NMS & gambar SEMUA kelas (termasuk License_Plate)
     dets = nms(dets, iou_t);
-    let mut per_class = vec![0usize; class_names.len()];
     for d in &dets {
         let label = class_names.get(d.cls).map(|s| s.as_str()).unwrap_or("obj");
-        per_class[d.cls]+=1;
         draw_box(&mut img, d, label)?;
-    }
-    for (i,cnt) in per_class.iter().enumerate() {
-        eprintln!("{}: {}", class_names[i], cnt);
     }
 
     imgcodecs::imwrite(save.to_str().unwrap(), &img, &Vector::new())?;
