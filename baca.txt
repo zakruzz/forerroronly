@@ -733,3 +733,30 @@ help: consider giving `items` an explicit type, where the placeholders `_` are s
   --minShapes=INPUT_NAME:1x3x640x640 \
   --optShapes=INPUT_NAME:1x3x640x640 \
   --maxShapes=INPUT_NAME:1x3x640x640
+
+
+error[E0282]: type annotations needed for `Vec<_>`
+  --> src/main.rs:53:9
+   |
+53 |     let mut keep=Vec::new();
+   |         ^^^^^^^^
+...
+56 |             if d.cls==k.cls && iou(&d,k) > iou_t { continue 'outer; }
+   |                       ----- type must be known at this point
+   |
+help: consider giving `keep` an explicit type, where the type for type parameter `T` is specified
+   |
+53 |     let mut keep: Vec<T>=Vec::new();
+   |                 ++++++++
+
+warning: use of deprecated method `ndarray::impl_owned_array::<impl ndarray::ArrayBase<ndarray::OwnedRepr<A>, D>>::into_raw_vec`: Use .into_raw_vec_and_offset() instead
+   --> src/main.rs:213:30
+    |
+213 |     let flat: Vec<f32> = out.into_raw_vec();
+    |                              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+For more information about this error, try `rustc --explain E0282`.
+warning: `onnx_io_inspect` (bin "onnx_io_inspect") generated 1 warning
+error: could not compile `onnx_io_inspect` (bin "onnx_io_inspect") due to 1 previous error; 1 warning emitted
