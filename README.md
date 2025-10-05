@@ -1558,3 +1558,68 @@ help: ensure that all possible cases are being handled by adding a match arm wit
 For more information about this error, try `rustc --explain E0004`.
 warning: `veh-counter-rs` (bin "veh-counter-rs") generated 1 warning
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 1 previous error; 1 warning emitted
+
+
+
+
+
+[{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "non-exhaustive patterns: `TensorIoMode::None` not covered\nthe matched value is of type `TensorIoMode`",
+	"source": "rustc",
+	"startLineNumber": 122,
+	"startColumn": 15,
+	"endLineNumber": 122,
+	"endColumn": 43,
+	"relatedInformation": [
+		{
+			"startLineNumber": 326,
+			"startColumn": 1,
+			"endLineNumber": 326,
+			"endColumn": 22,
+			"message": "`TensorIoMode` defined here",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-tensorrt-0.9.1/src/ffi/sync/engine.rs"
+		},
+		{
+			"startLineNumber": 124,
+			"startColumn": 91,
+			"endLineNumber": 124,
+			"endColumn": 91,
+			"message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown: `,\n            TensorIoMode::None => todo!()`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rust-analyzer",
+	"code": {
+		"value": "E0004",
+		"target": {
+			"$mid": 1,
+			"path": "/stable/error_codes/E0004.html",
+			"scheme": "https",
+			"authority": "doc.rust-lang.org"
+		}
+	},
+	"severity": 8,
+	"message": "missing match arm: `None` not covered",
+	"source": "rust-analyzer",
+	"startLineNumber": 122,
+	"startColumn": 15,
+	"endLineNumber": 122,
+	"endColumn": 43,
+	"origin": "extHost1"
+}]
