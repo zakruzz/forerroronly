@@ -1878,6 +1878,15 @@ error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previ
   --noTF32
 
 
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=best.onnx \
+  --saveEngine=yolo_fp16.plan \
+  --fp16 \
+  --workspace=4096 \
+  --minShapes=images:1x3x640x640 \
+  --optShapes=images:1x3x640x640 \
+  --maxShapes=images:1x3x640x640
+
 
 
 [10/05/2025-15:32:55] [E] Static model does not take explicit shapes since the shape of inference tensors will be determined by the model itself
