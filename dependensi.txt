@@ -127,6 +127,30 @@ help: consider giving `keep` an explicit type, where the type for type parameter
 65 |     let mut keep: Vec<T> = Vec::new();
    |                 ++++++++
 
+
+
+ahmadradhy@ubuntu:~/Image_processing$ cargo build
+   Compiling image_processor v0.1.0 (/home/ahmadradhy/Image_processing)
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+   --> src/main.rs:289:17
+    |
+289 |     let total = out.total()? as usize;
+    |                 ^^^^^^^^^^^^ the `?` operator cannot be applied to type `usize`
+    |
+    = help: the trait `Try` is not implemented for `usize`
+
+warning: unnecessary `unsafe` block
+  --> src/main.rs:49:26
+   |
+49 |         let mut target = unsafe { Mat::roi_mut(&mut canvas, roi)? };
+   |                          ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` on by default
+
+For more information about this error, try `rustc --explain E0277`.
+warning: `image_processor` (bin "image_processor") generated 1 warning
+error: could not compile `image_processor` (bin "image_processor") due to 1 previous error; 1 warning emitted
+
 Some errors have detailed explanations: E0277, E0282, E0433.
 For more information about an error, try `rustc --explain E0277`.
 error: could not compile `image_processor` (bin "image_processor") due to 3 previous errors
