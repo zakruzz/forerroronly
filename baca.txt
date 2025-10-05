@@ -534,3 +534,40 @@ warning: use of deprecated method `tract_onnx::prelude::ndarray::impl_owned_arra
     |
     = note: `#[warn(deprecated)]` on by default
 
+
+
+
+
+
+[{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "mismatched types\nexpected tuple `(Pipeline, AppSrc)`\n   found tuple `(_, _, _, _)`",
+	"source": "rustc",
+	"startLineNumber": 426,
+	"startColumn": 17,
+	"endLineNumber": 426,
+	"endColumn": 40,
+	"relatedInformation": [
+		{
+			"startLineNumber": 426,
+			"startColumn": 43,
+			"endLineNumber": 426,
+			"endColumn": 90,
+			"message": "this expression has type `(Pipeline, AppSrc)`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/jetson_yolo_count/src/main.rs"
+		}
+	],
+	"origin": "extHost1"
+}]
