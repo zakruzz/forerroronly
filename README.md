@@ -1868,6 +1868,18 @@ error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previ
   --noTF32
 
 
+# contoh untuk ONNX fixed 640×640
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=models/best.onnx \
+  --saveEngine=models/best_fp16.engine \
+  --fp16 \
+  --useCudaGraph \
+  --memPoolSize=workspace:2048 \
+  --noTF32
+
+
+
+
 [10/05/2025-15:32:55] [E] Static model does not take explicit shapes since the shape of inference tensors will be determined by the model itself
 [10/05/2025-15:32:55] [E] Network And Config setup failed
 [10/05/2025-15:32:55] [E] Building engine failed
