@@ -709,3 +709,20 @@ ahmadradhy@ubuntu:~/tugasakhir-fairuz/jetson_yolo_count$ /usr/src/tensorrt/bin/t
 [10/06/2025-01:58:31] [W] * GPU compute time is unstable, with coefficient of variance = 5.01618%.
 [10/06/2025-01:58:31] [W]   If not already in use, locking GPU clock frequency or adding --useSpinWait may improve the stability.
 
+
+
+
+error[E0282]: type annotations needed for `Box<_>`
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/time-0.3.23/src/format_description/parse/mod.rs:83:9
+   |
+83 |     let items = format_items
+   |         ^^^^^
+...
+86 |     Ok(items.into())
+   |              ---- type must be known at this point
+   |
+help: consider giving `items` an explicit type, where the placeholders `_` are specified
+   |
+83 |     let items: Box<_> = format_items
+   |              ++++++++
+
