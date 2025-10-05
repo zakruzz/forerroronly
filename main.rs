@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
 use async_cuda::{DeviceBuffer, HostBuffer, Stream};
-use async_tensorrt::{runtime::Runtime};
 use async_tensorrt::engine::{Engine, ExecutionContext, TensorIoMode};
+use async_tensorrt::runtime::Runtime;
 use opencv::{
     core::{Mat, MatTraitConst, Size, Vec3b},
     imgproc,
-    prelude::*,
     videoio::{self, VideoCaptureTrait, VideoCaptureTraitConst},
 };
 use std::{collections::HashMap, fs};
@@ -121,8 +120,17 @@ async fn main() -> Result<()> {
     for i in 0..engine.num_io_tensors() {
         let name = engine.io_tensor_name(i);
         match engine.tensor_io_mode(&name) {
-            TensorIoMode::Input => if input_name.is_none() { input_name = Some(name); },
-            TensorIoMode::Output => if output_name.is_none() { output_name = Some(name); },
+            TensorIoMode::Input => {
+                if input_name.is_none() {
+                    input_name = Some(name);
+                }
+            }
+            TensorIoMode::Output => {
+                if output_name.is_none() {
+                    output_name = Some(name);
+                }
+            }
+            TensorIoMode::None => { /* abaikan */ }
         }
     }
     let input_name = input_name.context("no input tensor in engine")?;
@@ -167,7 +175,9 @@ async fn main() -> Result<()> {
         let counts = decode_yolo_like(&out_host, num_classes, &classes, 0.25);
         let mut total = 0usize;
         for k in ["cars", "motorcyle", "truck"] {
-            if let Some(v) = counts.get(k) { total += *v; }
+            if let Some(v) = counts.get(k) {
+                total += *v;
+            }
         }
         println!("counts={:?}  total={}", counts, total);
     }
