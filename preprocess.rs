@@ -2,7 +2,6 @@ use anyhow::*;
 use ndarray::{Array, IxDyn};
 use opencv::{core, imgproc, prelude::*};
 
-/// Letterbox ke NxN, BGR -> RGB f32 [0..1], HWC->NCHW (1,3,N,N)
 pub fn letterbox_bgr_to_rgb_f32_nchw(mat_bgr: &Mat, new_size: i32) -> Result<Array<f32, IxDyn>> {
     let (h, w) = (mat_bgr.rows(), mat_bgr.cols());
     let scale = (new_size as f32 / w as f32).min(new_size as f32 / h as f32);
@@ -10,7 +9,13 @@ pub fn letterbox_bgr_to_rgb_f32_nchw(mat_bgr: &Mat, new_size: i32) -> Result<Arr
     let nh = ((h as f32) * scale).round() as i32;
 
     let mut resized = Mat::default();
-    imgproc::resize(mat_bgr, &mut resized, core::Size { width: nw, height: nh }, 0.0, 0.0, imgproc::INTER_LINEAR)?;
+    imgproc::resize(
+        mat_bgr,
+        &mut resized,
+        core::Size { width: nw, height: nh },
+        0.0, 0.0,
+        imgproc::INTER_LINEAR,
+    )?;
 
     let dw = new_size - nw;
     let dh = new_size - nh;
@@ -20,36 +25,38 @@ pub fn letterbox_bgr_to_rgb_f32_nchw(mat_bgr: &Mat, new_size: i32) -> Result<Arr
     let right = dw - left;
 
     let mut padded = Mat::default();
-    imgproc::copy_make_border(
-        &resized, &mut padded, top, bottom, left, right,
-        imgproc::BORDER_CONSTANT, core::Scalar::new(114.0,114.0,114.0,0.0)
+    // NOTE: fungsi & konstanta dari core::
+    core::copy_make_border(
+        &resized,
+        &mut padded,
+        top, bottom, left, right,
+        core::BORDER_CONSTANT,
+        core::Scalar::new(114.0, 114.0, 114.0, 0.0),
     )?;
 
     let mut rgb = Mat::default();
     imgproc::cvt_color(&padded, &mut rgb, imgproc::COLOR_BGR2RGB, 0)?;
 
     let mut f32img = Mat::default();
-    rgb.convert_to(&mut f32img, core::CV_32F, 1.0/255.0, 0.0)?;
+    rgb.convert_to(&mut f32img, core::CV_32F, 1.0 / 255.0, 0.0)?;
+
+    // Ambil slice data bertipe f32 secara aman
+    let data: &[f32] = f32img.data_typed::<f32>()?;
+    let rows = f32img.rows() as usize;
+    let cols = f32img.cols() as usize;
+    let chans = f32img.channels() as usize;
+    ensure!(chans == 3, "expected 3 channels");
+    ensure!(data.len() == rows * cols * chans, "data length mismatch");
 
     // HWC -> CHW (N=1)
-    let (rows, cols) = (f32img.rows(), f32img.cols());
-    let chans = f32img.channels();
-    ensure!(chans == 3, "expected 3 channels");
-    let total = (rows * cols * chans) as usize;
-
-    let data: &[f32] = unsafe {
-        std::slice::from_raw_parts(f32img.ptr(0) as *const f32, total)
-    };
-
-    let mut chw = vec![0f32; total];
-    let plane = (rows * cols) as usize;
+    let mut chw = vec![0f32; data.len()];
+    let plane = rows * cols;
     for y in 0..rows {
         for x in 0..cols {
-            for c in 0..3 {
-                let hwc_idx = (y * cols * 3 + x * 3 + c) as usize;
-                let chw_idx = c as usize * plane + (y * cols + x) as usize;
-                chw[chw_idx] = data[hwc_idx];
-            }
+            let base = (y * cols + x) * 3;
+            chw[0 * plane + (y * cols + x)] = data[base + 0];
+            chw[1 * plane + (y * cols + x)] = data[base + 1];
+            chw[2 * plane + (y * cols + x)] = data[base + 2];
         }
     }
 
