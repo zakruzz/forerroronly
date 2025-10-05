@@ -697,3 +697,6 @@ Caused by:
   Invalid nvinfer version found. Expected: libnvinfer.so.5.1.5, Found: libnvinfer.so.10.3.0
   note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 warning: build failed, waiting for other jobs to finish...
+
+
+sudo apt install -y tensorrt libnvinfer-dev libnvonnxparsers-dev libnvinfer-plugin-dev
