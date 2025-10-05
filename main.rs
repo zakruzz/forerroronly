@@ -34,19 +34,29 @@ fn main() -> Result<()> {
     let class_idxs = parse_count_arg(&o.count_classes, &names);
     eprintln!("[INFO] hitung kelas idx: {:?} ({} labels total)", class_idxs, names.len());
 
-    // kamera
-    let mut cam = videoio::VideoCapture::new(o.cam, videoio::CAP_ANY)?;
-    ensure!(cam.is_opened()?, "kamera {} gagal dibuka", o.cam);
+// kamera
+let mut cam = videoio::VideoCapture::new(o.cam, videoio::CAP_ANY)?;
+let opened = match cam.is_opened() {
+    // kalau signature-nya Result<bool>
+    #[allow(unreachable_patterns)]
+    Ok(v) => v,
+    // kalau signature-nya bool langsung (branch di bawah akan 'unreachable', tapi aman)
+    Err(_) => cam.is_opened(),
+};
+ensure!(opened, "kamera {} gagal dibuka", o.cam);
 
     // TRT session
     let mut sess = trt::TrtSession::from_engine_file(&o.engine)?;
     eprintln!("[INFO] engine loaded: {}", o.engine);
 
-    let mut frame = Mat::default();
-    loop {
-        if !cam.read(&mut frame)? || frame.empty()? {
-            eprintln!("no frame, exit"); break;
-        }
+// loop frame
+let mut frame = Mat::default();
+loop {
+    let ok = cam.read(&mut frame)?;
+    if !ok || frame.empty()? {
+        eprintln!("no frame, exit");
+        return Ok(());
+    }
 
         // prepro → [1,3,640,640] f32
         let input = letterbox_bgr_to_rgb_f32_nchw(&frame, o.size)?;
