@@ -1522,3 +1522,39 @@ For more information about an error, try `rustc --explain E0277`.
 warning: `veh-counter-rs` (bin "veh-counter-rs") generated 3 warnings
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 2 previous errors; 3 warnings emitted
 
+
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/veh-counter-rs$ cargo build
+   Compiling veh-counter-rs v0.1.0 (/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs)
+warning: unused import: `prelude`
+ --> src/main.rs:8:5
+  |
+8 |     prelude::*,
+  |     ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0004]: non-exhaustive patterns: `TensorIoMode::None` not covered
+   --> src/main.rs:123:15
+    |
+123 |         match engine.tensor_io_mode(&name) {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ pattern `TensorIoMode::None` not covered
+    |
+note: `TensorIoMode` defined here
+   --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-tensorrt-0.9.1/src/ffi/sync/engine.rs:326:1
+    |
+326 | pub enum TensorIoMode {
+    | ^^^^^^^^^^^^^^^^^^^^^
+327 |     None,
+    |     ---- not covered
+    = note: the matched value is of type `TensorIoMode`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+    |
+125 ~             TensorIoMode::Output => if output_name.is_none() { output_name = Some(name); },
+126 ~             TensorIoMode::None => todo!(),
+    |
+
+For more information about this error, try `rustc --explain E0004`.
+warning: `veh-counter-rs` (bin "veh-counter-rs") generated 1 warning
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 1 previous error; 1 warning emitted
