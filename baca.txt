@@ -457,3 +457,49 @@
 	],
 	"origin": "extHost1"
 }]
+
+
+
+
+
+
+warning: unused import: `ndarray::ArrayViewMut3`
+ --> src/main.rs:7:5
+  |
+7 | use ndarray::ArrayViewMut3;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0308]: mismatched types
+   --> src/main.rs:366:33
+    |
+366 |         let outputs = model.run(tvec!(input))?;
+    |                                 ^^^^^^-----^
+    |                                 |     |
+    |                                 |     this argument has type `tract_onnx::prelude::Tensor`...
+    |                                 expected `SmallVec<[TValue; 4]>`, found `SmallVec<[Tensor; 4]>`
+    |                                 ... which causes `vec` to have type `SmallVec<[tract_onnx::prelude::Tensor; 4]>`
+    |
+    = note: expected struct `SmallVec<[TValue; 4]>`
+               found struct `SmallVec<[tract_onnx::prelude::Tensor; 4]>`
+    = note: this error originates in the macro `tvec` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: call `Into::into` on this expression to convert `tract_onnx::prelude::Tensor` into `TValue`
+    |
+366 |         let outputs = model.run(tvec!(input.into()))?;
+    |                                            +++++++
+
+error[E0308]: mismatched types
+   --> src/main.rs:366:39
+    |
+366 |         let outputs = model.run(tvec!(input))?;
+    |                                       ^^^^^ expected `TValue`, found `Tensor`
+    |
+help: call `Into::into` on this expression to convert `tract_onnx::prelude::Tensor` into `TValue`
+    |
+366 |         let outputs = model.run(tvec!(input.into()))?;
+    |                                            +++++++
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `jetson_yolo_count` (bin "jetson_yolo_count") generated 1 warning
+error: could not compile `jetson_yolo_count` (bin "jetson_yolo_count") due to 2 previous errors; 1 warning emitted
