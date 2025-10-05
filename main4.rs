@@ -43,9 +43,9 @@ fn letterbox_bgr(img: &Mat, dst: i32) -> Result<(Mat, f32, i32, i32)> {
     let dx = (dst - nw) / 2;
     let dy = (dst - nh) / 2;
 
-    // ROI tanpa unsafe, dan target bertipe Mat (bukan BoxedRef)
+    // PAKAI roi_mut() (bukan roi()) supaya bisa jadi target copy_to
     let roi = Rect::new(dx, dy, nw, nh);
-    let mut target = core::Mat::roi(&mut canvas, roi)?;
+    let mut target = core::Mat::roi_mut(&mut canvas, roi)?;
     resized.copy_to(&mut target)?;
 
     Ok((canvas, s, dx, dy))
@@ -239,15 +239,15 @@ fn main() -> Result<()> {
     if outs.len() == 0 { bail!("tidak ada output dari model"); }
     let out = outs.get(0)?; // tensor pertama
 
-    // FIX: di crate-mu total() mengembalikan usize (bukan Result)
+    // total() di versi crate-mu mengembalikan usize (bukan Result)
     let total = out.total() as usize;
     if total % c != 0 {
         bail!("total elemen output {} tidak habis dibagi C={}", total, c);
     }
     let n = total / c;
 
-    // ambil slice f32; di beberapa versi perlu unsafe
-    let flat: &[f32] = unsafe { out.data_typed()? };
+    // ambil slice f32 (tanpa unsafe)
+    let flat: &[f32] = out.data_typed()?;
 
     // decode + nms
     let mut dets = decode_yolov8_4plusnc(
