@@ -1842,3 +1842,18 @@ Some errors have detailed explanations: E0282, E0502, E0597.
 For more information about an error, try `rustc --explain E0282`.
 warning: `veh-counter-rs` (bin "veh-counter-rs") generated 8 warnings
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previous errors; 8 warnings emitted
+
+
+
+
+/usr/src/tensorrt/bin/trtexec \
+  --loadEngine=models/best_fp16.engine \
+  --shapes=images:1x3x640x640 \
+  --useCudaGraph \
+  --streams=2 \
+  --warmUp=10 \
+  --duration=20 \
+  --iterations=0 \
+  --avgRuns=100 \
+  --dumpProfile \
+  --verbose
