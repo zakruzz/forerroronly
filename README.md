@@ -1857,3 +1857,13 @@ error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 12 previ
   --avgRuns=100 \
   --dumpProfile \
   --verbose
+
+
+  /usr/src/tensorrt/bin/trtexec \
+  --onnx=models/best.onnx \
+  --saveEngine=models/best_fp16.engine \
+  --shapes=images:1x3x640x640 \
+  --fp16 --useCudaGraph \
+  --memPoolSize=workspace:2048 \
+  --noTF32
+
