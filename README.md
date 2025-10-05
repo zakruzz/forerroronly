@@ -1906,3 +1906,17 @@ gst-inspect-1.0 | head
 
 # Rust toolchain
 rustc --version || true
+
+
+
+
+
+ahmadradhy@ubuntu:~/Image_processing$ cargo run -- ./best.onnx ./classes.json ./jalan2.jpeg 640 0.25 0.45  result1.jpg
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/image_processor ./best.onnx ./classes.json ./jalan2.jpeg 640 0.25 0.45 result1.jpg`
+[info] DNN backend: CUDA
+[ WARN:0@0.069] global net_impl.cpp:178 setUpNet DNN module was not built with CUDA backend; switching to CPU
+vehicle_count: 0
+Error: OpenCV(4.8.0) /home/ubuntu/opencv_build/opencv/modules/imgcodecs/src/loadsave.cpp:696: error: (-2:Unspecified error) could not find a writer for the specified extension in function 'imwrite_'
+ (code: StsError, -2)
+
