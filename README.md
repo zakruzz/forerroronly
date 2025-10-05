@@ -1362,3 +1362,72 @@ Some errors have detailed explanations: E0061, E0599.
 For more information about an error, try `rustc --explain E0061`.
 warning: `veh-counter-rs` (bin "veh-counter-rs") generated 2 warnings
 error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 9 previous errors; 2 warnings emitted
+
+
+ahmadradhy@ubuntu:~/tugasakhir-fairuz/veh-counter-rs$ cargo build
+   Compiling veh-counter-rs v0.1.0 (/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs)
+warning: unused import: `path::Path`
+ --> src/main.rs:9:37
+  |
+9 | use std::{collections::HashMap, fs, path::Path};
+  |                                     ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0599]: no method named `create_execution_context` found for struct `async_tensorrt::Engine` in the current scope
+  --> src/main.rs:31:10
+   |
+30 |       let mut ctx = engine
+   |  ___________________-
+31 | |         .create_execution_context()
+   | |         -^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `async_tensorrt::Engine`
+   | |_________|
+   |
+
+error[E0308]: mismatched types
+  --> src/main.rs:67:64
+   |
+67 |         let mut d_in = DeviceBuffer::from_slice(&input_tensor, &stream)
+   |                        ------------------------                ^^^^^^^ expected `&Stream`, found `&Result<Stream, Error>`
+   |                        |
+   |                        arguments to this function are incorrect
+   |
+   = note: expected reference `&async_cuda::Stream`
+              found reference `&std::result::Result<async_cuda::Stream, async_cuda::Error>`
+note: associated function defined here
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-cuda-0.6.1/src/memory/device.rs:61:18
+   |
+61 |     pub async fn from_slice(slice: &[T], stream: &Stream) -> Result<Self> {
+   |                  ^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> src/main.rs:71:61
+   |
+71 |         let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream)
+   |                         ------------------------            ^^^^^^^ expected `&Stream`, found `&Result<Stream, Error>`
+   |                         |
+   |                         arguments to this function are incorrect
+   |
+   = note: expected reference `&async_cuda::Stream`
+              found reference `&std::result::Result<async_cuda::Stream, async_cuda::Error>`
+note: associated function defined here
+  --> /home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-cuda-0.6.1/src/memory/device.rs:42:18
+   |
+42 |     pub async fn new(num_elements: usize, stream: &Stream) -> Self {
+   |                  ^^^
+
+error[E0599]: no method named `context` found for struct `async_cuda::DeviceBuffer` in the current scope
+  --> src/main.rs:73:14
+   |
+71 |           let mut d_out = DeviceBuffer::<f32>::new(out_elems, &stream)
+   |  _________________________-
+72 | |             .await
+73 | |             .context("alloc D output buffer")?;
+   | |             -^^^^^^^ method not found in `async_cuda::DeviceBuffer<f32>`
+   | |_____________|
+   |
+
+Some errors have detailed explanations: E0308, E0599.
+For more information about an error, try `rustc --explain E0308`.
+warning: `veh-counter-rs` (bin "veh-counter-rs") generated 1 warning
+error: could not compile `veh-counter-rs` (bin "veh-counter-rs") due to 4 previous errors; 1 warning emitted
