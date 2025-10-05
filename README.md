@@ -852,3 +852,344 @@ bash /tmp/jetson_gpu_audit.sh
 	],
 	"origin": "extHost1"
 }]
+
+
+
+
+[{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs"
+		}
+	},
+	"severity": 8,
+	"message": "expected a pattern, found a function call\nfunction calls are not allowed in patterns: <https://doc.rust-lang.org/book/ch19-00-patterns.html>",
+	"source": "rustc",
+	"startLineNumber": 46,
+	"startColumn": 16,
+	"endLineNumber": 46,
+	"endColumn": 18,
+	"relatedInformation": [
+		{
+			"startLineNumber": 1,
+			"startColumn": 1,
+			"endLineNumber": 1,
+			"endColumn": 1,
+			"message": "consider importing one of these tuple variants instead: `use std::result::Result::Ok;\n`, `use opencv::core::MatExprResult::Ok;\n`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "expected a pattern, found a function call\nfunction calls are not allowed in patterns: <https://doc.rust-lang.org/book/ch19-00-patterns.html>",
+	"source": "rustc",
+	"startLineNumber": 42,
+	"startColumn": 5,
+	"endLineNumber": 42,
+	"endColumn": 7,
+	"relatedInformation": [
+		{
+			"startLineNumber": 6,
+			"startColumn": 1,
+			"endLineNumber": 6,
+			"endColumn": 1,
+			"message": "consider importing one of these tuple variants instead: `use std::result::Result::Ok;\n`, `use opencv::core::MatExprResult::Ok;\n`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [2]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "2",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "the `?` operator can only be applied to values that implement `Try`\nthe trait `Try` is not implemented for `bool`",
+	"source": "rustc",
+	"startLineNumber": 56,
+	"startColumn": 15,
+	"endLineNumber": 56,
+	"endColumn": 29,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::execution_context`, `async_tensorrt::memory`, `async_tensorrt::stream`\ncould not find `execution_context` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 8,
+	"startColumn": 5,
+	"endLineNumber": 8,
+	"endColumn": 22,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [1]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "1",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::execution_context`, `async_tensorrt::memory`, `async_tensorrt::stream`\ncould not find `memory` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 9,
+	"startColumn": 5,
+	"endLineNumber": 9,
+	"endColumn": 11,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [2]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "2",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::execution_context`, `async_tensorrt::memory`, `async_tensorrt::stream`\ncould not find `stream` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 10,
+	"startColumn": 5,
+	"endLineNumber": 10,
+	"endColumn": 11,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [5]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "5",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "type annotations needed",
+	"source": "rustc",
+	"startLineNumber": 34,
+	"startColumn": 17,
+	"endLineNumber": 34,
+	"endColumn": 23,
+	"relatedInformation": [
+		{
+			"startLineNumber": 36,
+			"startColumn": 34,
+			"endLineNumber": 36,
+			"endColumn": 58,
+			"message": "type must be known at this point",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		},
+		{
+			"startLineNumber": 34,
+			"startColumn": 23,
+			"endLineNumber": 34,
+			"endColumn": 23,
+			"message": "consider giving `engine` an explicit type: `: /* Type */`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [3]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "3",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "no method named `deserialize_engine` found for opaque type `impl Future<Output = async_tensorrt::Runtime>` in the current scope\nmethod not found in `impl Future<Output = async_tensorrt::Runtime>`",
+	"source": "rustc",
+	"startLineNumber": 34,
+	"startColumn": 34,
+	"endLineNumber": 34,
+	"endColumn": 52,
+	"relatedInformation": [
+		{
+			"startLineNumber": 34,
+			"startColumn": 34,
+			"endLineNumber": 34,
+			"endColumn": 34,
+			"message": "consider `await`ing on the `Future` and calling the method on its `Output`: `await.`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [8]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "8",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "function takes 1 generic argument but 2 generic arguments were supplied\nexpected 1 generic argument",
+	"source": "rustc",
+	"startLineNumber": 59,
+	"startColumn": 13,
+	"endLineNumber": 59,
+	"endColumn": 15,
+	"relatedInformation": [
+		{
+			"startLineNumber": 653,
+			"startColumn": 8,
+			"endLineNumber": 653,
+			"endColumn": 10,
+			"message": "function defined here, with 1 generic parameter: `T`",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.100/src/lib.rs"
+		},
+		{
+			"startLineNumber": 59,
+			"startColumn": 19,
+			"endLineNumber": 59,
+			"endColumn": 34,
+			"message": "remove the unnecessary generic argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [10]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "10",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "function takes 1 generic argument but 2 generic arguments were supplied\nexpected 1 generic argument",
+	"source": "rustc",
+	"startLineNumber": 91,
+	"startColumn": 13,
+	"endLineNumber": 91,
+	"endColumn": 15,
+	"relatedInformation": [
+		{
+			"startLineNumber": 653,
+			"startColumn": 8,
+			"endLineNumber": 653,
+			"endColumn": 10,
+			"message": "function defined here, with 1 generic parameter: `T`",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.100/src/lib.rs"
+		},
+		{
+			"startLineNumber": 91,
+			"startColumn": 19,
+			"endLineNumber": 91,
+			"endColumn": 34,
+			"message": "remove the unnecessary generic argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs"
+		}
+	},
+	"severity": 8,
+	"message": "cannot find value `a_y1` in this scope\nnot found in this scope",
+	"source": "rustc",
+	"startLineNumber": 17,
+	"startColumn": 43,
+	"endLineNumber": 17,
+	"endColumn": 47,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [1]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "1",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs"
+		}
+	},
+	"severity": 8,
+	"message": "cannot find value `b_y1` in this scope\nnot found in this scope",
+	"source": "rustc",
+	"startLineNumber": 18,
+	"startColumn": 43,
+	"endLineNumber": 18,
+	"endColumn": 47,
+	"origin": "extHost1"
+}]
