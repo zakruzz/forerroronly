@@ -4,18 +4,17 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app::AppSink;
 use image::{imageops, ImageBuffer, Rgb};
-use ndarray::ArrayViewMut3;
 use serde::Deserialize;
 use std::{fs, path::PathBuf, time::Instant};
 
-// Tract ONNX (CPU dulu, biar gampang kompil jalan)
+// Tract ONNX (CPU) — simple & portable
 use tract_ndarray::Array4;
 use tract_onnx::prelude::*;
 
 #[derive(Parser, Debug)]
 #[command(name="jetson_yolo_count")]
 struct Args {
-    /// Path ONNX model (hasil export dari Colab)
+    /// Path ONNX (hasil export/simplify)
     #[arg(long)]
     onnx: PathBuf,
 
@@ -39,7 +38,11 @@ struct Args {
     #[arg(long, default_value_t=0.45)]
     iou: f32,
 
-    /// Verbose (print FPS)
+    /// Filter hanya kelas kendaraan
+    #[arg(long, default_value_t=true)]
+    filter_vehicle: bool,
+
+    /// Tampilkan FPS dan info output
     #[arg(long, default_value_t=false)]
     verbose: bool,
 }
@@ -121,128 +124,146 @@ fn nms(mut dets: Vec<Detection>, iou_thresh: f32) -> Vec<Detection> {
     keep
 }
 
-/// Decode YOLO head yang lazim:
-/// - Bentuk A: (1, (5+nc), N)  -> "rcn": rows=(5+nc), cols=N
-/// - Bentuk B: (1, N, (5+nc))  -> "rnc": rows=N, cols=(5+nc)
-/// Kita deteksi otomatis bentuknya.
+/// Decoder multi-format:
+/// - (1, 5+nc, N)  => YOLOv5 (x,y,w,h,obj,cls...)
+/// - (1, 4+nc, N)  => YOLOv8 (x,y,w,h,cls...)      score = max(cls_prob)
+/// - (1, N, 5+nc)  / (1, N, 4+nc) => transpose varian
 fn decode_yolo_dynamic(
     out: &[f32],
-    shape: &[usize],          // contoh [1, 84, 8400] atau [1, 8400, 84]
+    shape: &[usize],          // [1, C, N] atau [1, N, C]
     conf_t: f32,
     class_names: &[String],
     img_w: u32, img_h: u32,
     letter_scale: f32,
     pad_x: u32, pad_y: u32,
     dst_size: u32,
+    filter_vehicle: bool,
 ) -> Result<Vec<Detection>> {
     if shape.len() != 3 || shape[0] != 1 {
         bail!("shape output tidak didukung: {:?}", shape);
     }
     let (a, b) = (shape[1], shape[2]);
-    let nc_try1 = a.checked_sub(5).unwrap_or(0);
-    let nc_try2 = b.checked_sub(5).unwrap_or(0);
 
     let mut dets = Vec::new();
 
-    if nc_try1 > 0 {
-        // Bentuk A: (1, 5+nc, N)
-        let num_classes = nc_try1;
+    let mut push_det = |mut cx: f32, mut cy: f32, mut w: f32, mut h: f32, score: f32, class_id: usize| {
+        cx *= dst_size as f32;
+        cy *= dst_size as f32;
+        w  *= dst_size as f32;
+        h  *= dst_size as f32;
+        let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
+
+        let fx  = (x1 - pad_x as f32).max(0.0);
+        let fy  = (y1 - pad_y as f32).max(0.0);
+        let fx2 = (x2 - pad_x as f32).max(0.0);
+        let fy2 = (y2 - pad_y as f32).max(0.0);
+        let inv = 1.0 / letter_scale;
+
+        x1 = (fx  * inv).clamp(0.0, img_w as f32 - 1.0);
+        y1 = (fy  * inv).clamp(0.0, img_h as f32 - 1.0);
+        x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
+        y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
+
+        dets.push(Detection { x1, y1, x2, y2, score, class_id });
+    };
+
+    // ---- Case 1: (1, C, N)
+    if a >= 4 {
         let n = b;
-        let stride = n;
+        let c = a;
+        let is_v5 = c >= 5 && (c - 5) <= class_names.len();
+        let is_v8 = c >= 4 && (c - 4) <= class_names.len();
 
-        for i in 0..n {
-            let bx = out[i];
-            let by = out[stride + i];
-            let bw = out[2 * stride + i];
-            let bh = out[3 * stride + i];
-            let obj = out[4 * stride + i];
+        if is_v5 || is_v8 {
+            let nc = if is_v5 { c - 5 } else { c - 4 };
+            let stride = n;
+            for i in 0..n {
+                let bx = out[0 * stride + i];
+                let by = out[1 * stride + i];
+                let bw = out[2 * stride + i];
+                let bh = out[3 * stride + i];
 
-            // kelas
-            let mut best_c = 0usize;
-            let mut best_p = 0f32;
-            for c in 0..num_classes {
-                let p = out[(5 + c) * stride + i];
-                if p > best_p { best_p = p; best_c = c; }
+                let (score, best_c) = if is_v5 {
+                    let obj = out[4 * stride + i];
+                    let (mut best_c, mut best_p) = (0usize, 0f32);
+                    for cc in 0..nc {
+                        let p = out[(5 + cc) * stride + i];
+                        if p > best_p { best_p = p; best_c = cc; }
+                    }
+                    (obj * best_p, best_c)
+                } else {
+                    let (mut best_c, mut best_p) = (0usize, 0f32);
+                    for cc in 0..nc {
+                        let p = out[(4 + cc) * stride + i];
+                        if p > best_p { best_p = p; best_c = cc; }
+                    }
+                    (best_p, best_c)
+                };
+
+                if score < conf_t { continue; }
+                if filter_vehicle {
+                    let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
+                    if !is_vehicle(cname) { continue; }
+                }
+                push_det(bx, by, bw, bh, score, best_c);
             }
-            let score = obj * best_p;
-            if score < conf_t { continue; }
-
-            let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
-            if !is_vehicle(cname) { continue; }
-
-            // xywh (kanvas) -> xyxy frame asli (undo letterbox)
-            let (cx, cy, w, h) = (bx * dst_size as f32, by * dst_size as f32, bw * dst_size as f32, bh * dst_size as f32);
-            let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
-
-            let fx = (x1 - pad_x as f32).max(0.0);
-            let fy = (y1 - pad_y as f32).max(0.0);
-            let fx2 = (x2 - pad_x as f32).max(0.0);
-            let fy2 = (y2 - pad_y as f32).max(0.0);
-
-            let inv = 1.0 / letter_scale;
-            x1 = (fx * inv).clamp(0.0, img_w as f32 - 1.0);
-            y1 = (fy * inv).clamp(0.0, img_h as f32 - 1.0);
-            x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
-            y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
-
-            dets.push(Detection { x1, y1, x2, y2, score, class_id: best_c });
+            return Ok(dets);
         }
-        return Ok(dets);
     }
 
-    if nc_try2 > 0 {
-        // Bentuk B: (1, N, 5+nc)
+    // ---- Case 2: (1, N, C)
+    if b >= 4 {
         let n = a;
-        let channels = b; // 5+nc
-        let num_classes = channels - 5;
+        let c = b;
+        let is_v5 = c >= 5 && (c - 5) <= class_names.len();
+        let is_v8 = c >= 4 && (c - 4) <= class_names.len();
 
-        for i in 0..n {
-            let base = i * channels;
-            let bx = out[base + 0];
-            let by = out[base + 1];
-            let bw = out[base + 2];
-            let bh = out[base + 3];
-            let obj = out[base + 4];
+        if is_v5 || is_v8 {
+            let nc = if is_v5 { c - 5 } else { c - 4 };
+            for i in 0..n {
+                let base = i * c;
+                let bx = out[base + 0];
+                let by = out[base + 1];
+                let bw = out[base + 2];
+                let bh = out[base + 3];
 
-            let mut best_c = 0usize;
-            let mut best_p = 0f32;
-            for c in 0..num_classes {
-                let p = out[base + 5 + c];
-                if p > best_p { best_p = p; best_c = c; }
+                let (score, best_c) = if is_v5 {
+                    let obj = out[base + 4];
+                    let (mut best_c, mut best_p) = (0usize, 0f32);
+                    for cc in 0..nc {
+                        let p = out[base + 5 + cc];
+                        if p > best_p { best_p = p; best_c = cc; }
+                    }
+                    (obj * best_p, best_c)
+                } else {
+                    let (mut best_c, mut best_p) = (0usize, 0f32);
+                    for cc in 0..nc {
+                        let p = out[base + 4 + cc];
+                        if p > best_p { best_p = p; best_c = cc; }
+                    }
+                    (best_p, best_c)
+                };
+
+                if score < conf_t { continue; }
+                if filter_vehicle {
+                    let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
+                    if !is_vehicle(cname) { continue; }
+                }
+                push_det(bx, by, bw, bh, score, best_c);
             }
-            let score = obj * best_p;
-            if score < conf_t { continue; }
-
-            let cname = class_names.get(best_c).map(|s| s.as_str()).unwrap_or("");
-            if !is_vehicle(cname) { continue; }
-
-            let (cx, cy, w, h) = (bx * dst_size as f32, by * dst_size as f32, bw * dst_size as f32, bh * dst_size as f32);
-            let (mut x1, mut y1, mut x2, mut y2) = (cx - w/2.0, cy - h/2.0, cx + w/2.0, cy + h/2.0);
-
-            let fx = (x1 - pad_x as f32).max(0.0);
-            let fy = (y1 - pad_y as f32).max(0.0);
-            let fx2 = (x2 - pad_x as f32).max(0.0);
-            let fy2 = (y2 - pad_y as f32).max(0.0);
-
-            let inv = 1.0 / letter_scale;
-            x1 = (fx * inv).clamp(0.0, img_w as f32 - 1.0);
-            y1 = (fy * inv).clamp(0.0, img_h as f32 - 1.0);
-            x2 = (fx2 * inv).clamp(0.0, img_w as f32 - 1.0);
-            y2 = (fy2 * inv).clamp(0.0, img_h as f32 - 1.0);
-
-            dets.push(Detection { x1, y1, x2, y2, score, class_id: best_c });
+            return Ok(dets);
         }
-        return Ok(dets);
     }
 
-    bail!("tidak bisa tebak format output YOLO dari shape: {:?}", shape);
+    bail!("format output YOLO tidak dikenali. shape={shape:?}");
 }
 
 fn build_pipeline(device: &str) -> Result<(gst::Pipeline, AppSink)> {
     gst::init()?;
 
-    // Pipeline simpel: tarik BGR 1280x720 → appsink
-    // Kalau kamera pakai MJPEG, bisa diganti "v4l2src ! image/jpeg ! jpegdec ! …"
+    // Pipeline simpel: BGR 1280x720 → appsink
+    // Jika kamera MJPEG, bisa ganti:
+    // v4l2src device=/dev/video0 ! image/jpeg,framerate=30/1 ! jpegdec ! videoconvert ! ...
     let pipeline_str = format!(
         "v4l2src device={} !
          videoconvert ! video/x-raw,format=BGR !
@@ -282,7 +303,6 @@ fn main() -> Result<()> {
     pipeline.set_state(gst::State::Playing)?;
 
     // 3) siapkan ONNX (Tract)
-    //    Asumsi input: [1,3,IMG,IMG], f32
     let mut model = tract_onnx::onnx()
         .model_for_path(&args.onnx)
         .with_context(|| format!("gagal load onnx: {:?}", &args.onnx))?;
@@ -301,7 +321,7 @@ fn main() -> Result<()> {
     let mut frame_idx: u64 = 0;
 
     loop {
-        // AppSink::try_pull_sample minta Option<ClockTime>, bukan std::Duration
+        // AppSink::try_pull_sample butuh Option<ClockTime>
         let sample = match appsink.try_pull_sample(Some(gst::ClockTime::from_mseconds(500))) {
             Some(s) => s,
             None => {
@@ -360,28 +380,25 @@ fn main() -> Result<()> {
             (1, 3, args.imgsz as usize, args.imgsz as usize),
             input_chw
         ).context("shape input mismatch")?;
-        let input = Tensor::from(arr);
+        let input_t: TValue = Tensor::from(arr).into();
 
         // Inference
-        let outputs = model.run(tvec!(input))?;
-        let out = outputs[0].to_array_view::<f32>()?; // NdArray view
-
-        // Ambil shape & data jadi slice
+        let outputs = model.run(tvec!(input_t))?;
+        let out = outputs[0].to_array_view::<f32>()?;
         let shape = out.shape().to_vec(); // contoh [1,84,8400] atau [1,8400,84]
-        let mut flat: Vec<f32> = vec![0.0; out.len()];
-        // copy ke buffer datar
-        let mut view = out.into_owned();
-        // (ngakalin borrow): isi flat dari view
-        let slice = view.as_slice_mut().ok_or_else(|| anyhow!("gagal ambil slice output"))?;
-        flat.copy_from_slice(slice);
+        let flat: Vec<f32> = out.to_owned().into_raw_vec();
+
+        if args.verbose && frame_idx % 60 == 0 {
+            let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
+            for &v in &flat { if v < mn { mn = v } if v > mx { mx = v } }
+            eprintln!("OUTPUT SHAPE={:?}  RANGE=[{:.4}, {:.4}]", shape, mn, mx);
+        }
 
         // Decode sesuai shape
         let dets_raw = match decode_yolo_dynamic(
-            &flat,
-            &shape,
-            args.conf,
-            &classes.0,
-            w, h, scale, pad_x, pad_y, args.imgsz
+            &flat, &shape, args.conf, &classes.0,
+            w, h, scale, pad_x, pad_y, args.imgsz,
+            args.filter_vehicle,
         ) {
             Ok(v) => v,
             Err(e) => {
