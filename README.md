@@ -295,3 +295,560 @@ bash /tmp/jetson_gpu_audit.sh
   --skipInference \
   --verbose 2>&1 | tee trtexec_build.log
 
+[{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs"
+		}
+	},
+	"severity": 8,
+	"message": "expected a pattern, found a function call\nfunction calls are not allowed in patterns: <https://doc.rust-lang.org/book/ch19-00-patterns.html>",
+	"source": "rustc",
+	"startLineNumber": 46,
+	"startColumn": 16,
+	"endLineNumber": 46,
+	"endColumn": 18,
+	"relatedInformation": [
+		{
+			"startLineNumber": 1,
+			"startColumn": 1,
+			"endLineNumber": 1,
+			"endColumn": 1,
+			"message": "consider importing one of these tuple variants instead: `use std::result::Result::Ok;\n`, `use opencv::core::MatExprResult::Ok;\n`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/config.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "the `?` operator can only be applied to values that implement `Try`\nthe trait `Try` is not implemented for `bool`",
+	"source": "rustc",
+	"startLineNumber": 47,
+	"startColumn": 38,
+	"endLineNumber": 47,
+	"endColumn": 52,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [1]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "1",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	},
+	"severity": 8,
+	"message": "mismatched types\n  expected enum `std::result::Result<(), anyhow::Error>`\nfound unit type `()`",
+	"source": "rustc",
+	"startLineNumber": 48,
+	"startColumn": 42,
+	"endLineNumber": 48,
+	"endColumn": 47,
+	"relatedInformation": [
+		{
+			"startLineNumber": 31,
+			"startColumn": 14,
+			"endLineNumber": 31,
+			"endColumn": 24,
+			"message": "expected `Result<()>` because of this return type",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		},
+		{
+			"startLineNumber": 46,
+			"startColumn": 5,
+			"endLineNumber": 46,
+			"endColumn": 9,
+			"message": "this loop is expected to be of type `std::result::Result<(), anyhow::Error>`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		},
+		{
+			"startLineNumber": 48,
+			"startColumn": 47,
+			"endLineNumber": 48,
+			"endColumn": 47,
+			"message": "give the `break` a value of the expected type: ` Ok(())`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/main.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		}
+	},
+	"severity": 8,
+	"message": "cannot find function `copy_make_border` in module `imgproc`\nnot found in `imgproc`",
+	"source": "rustc",
+	"startLineNumber": 23,
+	"startColumn": 14,
+	"endLineNumber": 23,
+	"endColumn": 30,
+	"relatedInformation": [
+		{
+			"startLineNumber": 1,
+			"startColumn": 1,
+			"endLineNumber": 1,
+			"endColumn": 1,
+			"message": "consider importing one of these functions: `use crate::preprocess::core::copy_make_border;\n`, `use opencv::core::copy_make_border;\n`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		},
+		{
+			"startLineNumber": 23,
+			"startColumn": 5,
+			"endLineNumber": 23,
+			"endColumn": 14,
+			"message": "if you import `copy_make_border`, refer to it directly",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [3]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "3",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		}
+	},
+	"severity": 8,
+	"message": "cannot find value `BORDER_CONSTANT` in module `imgproc`\nnot found in `imgproc`",
+	"source": "rustc",
+	"startLineNumber": 25,
+	"startColumn": 18,
+	"endLineNumber": 25,
+	"endColumn": 33,
+	"relatedInformation": [
+		{
+			"startLineNumber": 1,
+			"startColumn": 1,
+			"endLineNumber": 1,
+			"endColumn": 1,
+			"message": "consider importing one of these items: `use crate::preprocess::core::BORDER_CONSTANT;\n`, `use crate::preprocess::core::BorderTypes::BORDER_CONSTANT;\n`, `use opencv::core::BORDER_CONSTANT;\n`, `use opencv::core::BorderTypes::BORDER_CONSTANT;\n`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		},
+		{
+			"startLineNumber": 25,
+			"startColumn": 9,
+			"endLineNumber": 25,
+			"endColumn": 18,
+			"message": "if you import `BORDER_CONSTANT`, refer to it directly",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs",
+	"owner": "rust-analyzer",
+	"code": {
+		"value": "E0605",
+		"target": {
+			"$mid": 1,
+			"path": "/stable/error_codes/E0605.html",
+			"scheme": "https",
+			"authority": "doc.rust-lang.org"
+		}
+	},
+	"severity": 8,
+	"message": "non-primitive cast: `Result<*const u8, Error>` as `*const f32`",
+	"source": "rust-analyzer",
+	"startLineNumber": 41,
+	"startColumn": 36,
+	"endLineNumber": 41,
+	"endColumn": 63,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [6]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "6",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/preprocess.rs"
+		}
+	},
+	"severity": 8,
+	"message": "non-primitive cast: `std::result::Result<*const u8, opencv::Error>` as `*const f32`\nan `as` expression can only be used to convert between primitive types or to coerce to a specific trait object",
+	"source": "rustc",
+	"startLineNumber": 41,
+	"startColumn": 36,
+	"endLineNumber": 41,
+	"endColumn": 63,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::logger`, `async_tensorrt::context`, `async_tensorrt::cuda`\ncould not find `logger` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 6,
+	"startColumn": 5,
+	"endLineNumber": 6,
+	"endColumn": 11,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [1]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "1",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::logger`, `async_tensorrt::context`, `async_tensorrt::cuda`\ncould not find `context` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 9,
+	"startColumn": 5,
+	"endLineNumber": 9,
+	"endColumn": 12,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [2]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "2",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "unresolved imports `async_tensorrt::logger`, `async_tensorrt::context`, `async_tensorrt::cuda`\ncould not find `cuda` in `async_tensorrt`",
+	"source": "rustc",
+	"startLineNumber": 10,
+	"startColumn": 5,
+	"endLineNumber": 10,
+	"endColumn": 9,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [3]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "3",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "this function takes 0 arguments but 1 argument was supplied",
+	"source": "rustc",
+	"startLineNumber": 33,
+	"startColumn": 27,
+	"endLineNumber": 33,
+	"endColumn": 39,
+	"relatedInformation": [
+		{
+			"startLineNumber": 33,
+			"startColumn": 40,
+			"endLineNumber": 33,
+			"endColumn": 47,
+			"message": "unexpected argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		},
+		{
+			"startLineNumber": 18,
+			"startColumn": 18,
+			"endLineNumber": 18,
+			"endColumn": 21,
+			"message": "associated function defined here",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-tensorrt-0.9.1/src/runtime.rs"
+		},
+		{
+			"startLineNumber": 33,
+			"startColumn": 40,
+			"endLineNumber": 33,
+			"endColumn": 47,
+			"message": "remove the extra argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [6]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "6",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "the `?` operator can only be applied to values that implement `Try`\nthe trait `Try` is not implemented for `async_tensorrt::Runtime`",
+	"source": "rustc",
+	"startLineNumber": 33,
+	"startColumn": 27,
+	"endLineNumber": 33,
+	"endColumn": 55,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rust-analyzer",
+	"code": {
+		"value": "E0107",
+		"target": {
+			"$mid": 1,
+			"path": "/stable/error_codes/E0107.html",
+			"scheme": "https",
+			"authority": "doc.rust-lang.org"
+		}
+	},
+	"severity": 8,
+	"message": "expected 0 arguments, found 1",
+	"source": "rust-analyzer",
+	"startLineNumber": 33,
+	"startColumn": 39,
+	"endLineNumber": 33,
+	"endColumn": 48,
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [7]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "7",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "type annotations needed",
+	"source": "rustc",
+	"startLineNumber": 36,
+	"startColumn": 17,
+	"endLineNumber": 36,
+	"endColumn": 23,
+	"relatedInformation": [
+		{
+			"startLineNumber": 38,
+			"startColumn": 38,
+			"endLineNumber": 38,
+			"endColumn": 62,
+			"message": "type must be known at this point",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		},
+		{
+			"startLineNumber": 36,
+			"startColumn": 23,
+			"endLineNumber": 36,
+			"endColumn": 23,
+			"message": "consider giving `engine` an explicit type: `: /* Type */`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [10]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "10",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "function takes 1 generic argument but 2 generic arguments were supplied\nexpected 1 generic argument",
+	"source": "rustc",
+	"startLineNumber": 62,
+	"startColumn": 13,
+	"endLineNumber": 62,
+	"endColumn": 15,
+	"relatedInformation": [
+		{
+			"startLineNumber": 653,
+			"startColumn": 8,
+			"endLineNumber": 653,
+			"endColumn": 10,
+			"message": "function defined here, with 1 generic parameter: `T`",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.100/src/lib.rs"
+		},
+		{
+			"startLineNumber": 62,
+			"startColumn": 19,
+			"endLineNumber": 62,
+			"endColumn": 34,
+			"message": "remove the unnecessary generic argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [12]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "12",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "function takes 1 generic argument but 2 generic arguments were supplied\nexpected 1 generic argument",
+	"source": "rustc",
+	"startLineNumber": 100,
+	"startColumn": 13,
+	"endLineNumber": 100,
+	"endColumn": 15,
+	"relatedInformation": [
+		{
+			"startLineNumber": 653,
+			"startColumn": 8,
+			"endLineNumber": 653,
+			"endColumn": 10,
+			"message": "function defined here, with 1 generic parameter: `T`",
+			"resource": "/home/ahmadradhy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.100/src/lib.rs"
+		},
+		{
+			"startLineNumber": 100,
+			"startColumn": 19,
+			"endLineNumber": 100,
+			"endColumn": 34,
+			"message": "remove the unnecessary generic argument",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [14]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "14",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	},
+	"severity": 8,
+	"message": "no method named `get_tensor_shape` found for struct `Arc<async_tensorrt::Engine>` in the current scope",
+	"source": "rustc",
+	"startLineNumber": 104,
+	"startColumn": 49,
+	"endLineNumber": 104,
+	"endColumn": 65,
+	"relatedInformation": [
+		{
+			"startLineNumber": 104,
+			"startColumn": 49,
+			"endLineNumber": 104,
+			"endColumn": 65,
+			"message": "there is a method `tensor_shape` with a similar name: `tensor_shape`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/trt.rs"
+		}
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs",
+	"owner": "rustc",
+	"code": {
+		"value": "Click for full compiler diagnostic",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostic message [0]",
+			"scheme": "rust-analyzer-diagnostics-view",
+			"query": "0",
+			"fragment": "file:///home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs"
+		}
+	},
+	"severity": 8,
+	"message": "type annotations needed for `Vec<_>`",
+	"source": "rustc",
+	"startLineNumber": 24,
+	"startColumn": 9,
+	"endLineNumber": 24,
+	"endColumn": 17,
+	"relatedInformation": [
+		{
+			"startLineNumber": 27,
+			"startColumn": 28,
+			"endLineNumber": 27,
+			"endColumn": 38,
+			"message": "type must be known at this point",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs"
+		},
+		{
+			"startLineNumber": 24,
+			"startColumn": 17,
+			"endLineNumber": 24,
+			"endColumn": 17,
+			"message": "consider giving `keep` an explicit type, where the type for type parameter `T` is specified: `: Vec<T>`",
+			"resource": "/home/ahmadradhy/tugasakhir-fairuz/veh-counter-rs/src/yolo.rs"
+		}
+	],
+	"origin": "extHost1"
+}]
