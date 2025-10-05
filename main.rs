@@ -1,64 +1,63 @@
-use anyhow::{Context, Result};
-let mut matched: HashMap<u64, (f32,f32,f32,f32)> = HashMap::new();
-let mut used = vec![false; dets.len()];
-for (tid, tr) in tracks.iter_mut() {
-// find best IoU detection
-let mut best = (0usize, 0f32);
-for (i, d) in dets.iter().enumerate() {
-if used[i] { continue; }
-let bb = (d.x1, d.y1, d.x2, d.y2);
-let iou_v = iou(tr.bbox, bb);
-if iou_v > best.1 { best = (i, iou_v); }
-}
-if best.1 > 0.3 {
-let d = dets[best.0];
-tr.bbox = (d.x1,d.y1,d.x2,d.y2);
-tr.hits += 1;
-tr.last_seen = Instant::now();
-matched.insert(*tid, tr.bbox);
-used[best.0] = true;
-}
-}
-// create tracks for unmatched detections
-for (i, d) in dets.iter().enumerate() {
-if used[i] { continue; }
-let id = next_id; next_id += 1;
-tracks.insert(id, Track { id, bbox: (d.x1,d.y1,d.x2,d.y2), last_seen: Instant::now(), hits: 1 });
-}
-// drop stale tracks
-tracks.retain(|_, tr| tr.last_seen.elapsed() < Duration::from_millis(800));
+mod config;
+mod preprocess;
+mod yolo;
+mod trt;
 
+use anyhow::*;
+use clap::Parser;
+use opencv::{prelude::*, videoio};
+use config::{load_classes_json, parse_count_arg};
+use preprocess::letterbox_bgr_to_rgb_f32_nchw;
+use yolo::{decode_flexible, nms};
 
-// --- simplistic counting: horizontal virtual line at 1/2 height ---
-let y_line = (h as f32) * 0.5;
-for (_id, tr) in tracks.iter_mut() {
-let (_, y1, _, y2) = tr.bbox;
-let cy = (y1 + y2) / 2.0;
-// if a track just crossed the line this frame (toggle via hits)
-if (cy - y_line).abs() < 5.0 && tr.hits == 1 { total_count += 1; }
+#[derive(Parser, Debug)]
+#[command(version, about="Full-Rust Vehicle Counter (TensorRT)")]
+struct Opts {
+    #[arg(long, default_value = "models/best_fp16.engine")]
+    engine: String,
+    #[arg(long, default_value_t = 0)]
+    cam: i32,
+    #[arg(long, default_value_t = 640)]
+    size: i32,
+    #[arg(long, default_value_t = 0.25)]
+    conf_th: f32,
+    #[arg(long, default_value_t = 0.45)]
+    iou_th: f32,
+    /// angka atau nama kelas, pisahkan koma. contoh: "car,motorcycle,bus,truck" atau "2,3,5,7"
+    #[arg(long, default_value = "car,motorcycle,bus,truck")]
+    count_classes: String,
 }
 
+fn main() -> Result<()> {
+    let o = Opts::parse();
+    let names = load_classes_json("config/classes.json")?;
+    let class_idxs = parse_count_arg(&o.count_classes, &names);
+    eprintln!("[INFO] hitung kelas idx: {:?} ({} labels total)", class_idxs, names.len());
 
-// --- draw preview ---
-if let Some(win) = &mut window {
-let mut img = ImageBuffer::<Rgb<u8>, _>::from_raw(w, h, rgb.to_vec()).unwrap();
-for (_, tr) in tracks.iter() {
-let (x1,y1,x2,y2) = tr.bbox;
-let r = Rect::at(x1 as i32, y1 as i32).of_size((x2-x1) as u32, (y2-y1) as u32);
-draw_hollow_rect_mut(&mut img, r, Rgb([0,255,0]));
-}
-// line
-let rline = Rect::at(0, y_line as i32).of_size(w, 2);
-draw_filled_rect_mut(&mut img, rline, Rgb([255,0,0]));
+    // kamera
+    let mut cam = videoio::VideoCapture::new(o.cam, videoio::CAP_ANY)?;
+    ensure!(cam.is_opened()?, "kamera {} gagal dibuka", o.cam);
 
+    // TRT session
+    let mut sess = trt::TrtSession::from_engine_file(&o.engine)?;
+    eprintln!("[INFO] engine loaded: {}", o.engine);
 
-// FPS text (quick & dirty: skip text, just update window title)
-let now = Instant::now();
-let dt = now.duration_since(last).as_secs_f32();
-last = now;
-let fps = 1.0 / dt.max(1e-3);
-win.set_title(&format!("Counter — total={} — {:.1} FPS", total_count, fps));
-win.update_with_buffer(img.as_raw(), w as usize, h as usize).unwrap();
-}
-}
+    let mut frame = Mat::default();
+    loop {
+        if !cam.read(&mut frame)? || frame.empty()? {
+            eprintln!("no frame, exit"); break;
+        }
+
+        // prepro → [1,3,640,640] f32
+        let input = letterbox_bgr_to_rgb_f32_nchw(&frame, o.size)?;
+
+        // infer
+        let out = sess.infer(&input)?;           // ndarray f32 output
+
+        // decode + NMS
+        let dets = decode_flexible(&out, o.conf_th, &class_idxs)?;
+        let kept = nms(dets, o.iou_th);
+
+        println!("Kendaraan terdeteksi (frame): {}", kept.len());
+    }
 }
