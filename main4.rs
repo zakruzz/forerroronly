@@ -9,8 +9,6 @@ use std::{env, fs, path::PathBuf};
 #[derive(Clone, Debug)]
 struct Det { x1:f32, y1:f32, x2:f32, y2:f32, score:f32, cls:usize }
 
-fn is_vehicle_label(label:&str)->bool { matches!(label, "cars" | "motorcyle" | "truck") }
-
 fn letterbox_bgr(img:&Mat, dst:i32)->Result<(Mat, f32, i32, i32)>{
     let w=img.cols(); let h=img.rows();
     let s=(dst as f32 / w as f32).min(dst as f32 / h as f32);
@@ -62,6 +60,105 @@ fn draw_box(img:&mut Mat, d:&Det, label:&str)->Result<()>{
     Ok(())
 }
 
+#[inline] fn sigmoid(x:f32)->f32 { 1.0/(1.0+(-x).exp()) }
+
+/// Decode JALUR-A: asumsi output SUDAH ter-decode (xywh/xyxy, norm/pixel)
+fn decode_decoded<F>(
+    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
+    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, dst:i32,
+    xyxy:bool, normalized:bool
+)->Result<Vec<Det>>
+where F: Fn(usize,usize)->f32 {
+    let nc=c.checked_sub(4).ok_or_else(||anyhow!("C<4"))?;
+    let mut out=Vec::new();
+    for i in 0..n {
+        let (mut x1,mut y1,mut x2,mut y2) = if xyxy {
+            (get(0,i),get(1,i),get(2,i),get(3,i))
+        } else {
+            let (mut cx,mut cy,mut w,mut h)=(get(0,i),get(1,i),get(2,i),get(3,i));
+            if normalized { cx*=dst as f32; cy*=dst as f32; w*=dst as f32; h*=dst as f32; }
+            (cx-w/2.0, cy-h/2.0, cx+w/2.0, cy+h/2.0)
+        };
+        if xyxy && normalized { x1*=dst as f32; y1*=dst as f32; x2*=dst as f32; y2*=dst as f32; }
+
+        // kelas terbaik (anggap logits → sigmoid)
+        let mut best_c=0usize; let mut best_p=f32::MIN;
+        for cc in 0..nc { let p=sigmoid(get(4+cc,i)); if p>best_p{best_p=p;best_c=cc;} }
+        if best_p<conf { continue; }
+
+        // mapping balik letterbox
+        let fx=(x1-pad_x as f32).max(0.0); let fy=(y1-pad_y as f32).max(0.0);
+        let fx2=(x2-pad_x as f32).max(0.0); let fy2=(y2-pad_y as f32).max(0.0);
+        let inv=1.0/scale;
+        x1=(fx*inv).clamp(0.0,(orig_w-1) as f32);
+        y1=(fy*inv).clamp(0.0,(orig_h-1) as f32);
+        x2=(fx2*inv).clamp(0.0,(orig_w-1) as f32);
+        y2=(fy2*inv).clamp(0.0,(orig_h-1) as f32);
+
+        if (x2-x1)>=2.0 && (y2-y1)>=2.0 { out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c}); }
+    }
+    Ok(out)
+}
+
+/// Decode JALUR-B: output RAW-HEAD YOLOv8 (belum grid/stride)
+fn decode_raw_with_grid<F>(
+    get:&F, c:usize, n:usize, conf:f32, class_names:&[String],
+    orig_w:i32, orig_h:i32, scale:f32, pad_x:i32, pad_y:i32, dst:i32
+)->Result<Vec<Det>>
+where F: Fn(usize,usize)->f32 {
+    let nc=c.checked_sub(4).ok_or_else(||anyhow!("C<4"))?;
+
+    // cek bahwa N cocok 80^2 + 40^2 + 20^2
+    let n80=(dst/8) as usize; let n40=(dst/16) as usize; let n20=(dst/32) as usize;
+    let s1=n80*n80; let s2=n40*n40; let s3=n20*n20;
+    if n != s1+s2+s3 { bail!("N {} tidak cocok dengan 80^2+40^2+20^2 ({}).", n, s1+s2+s3); }
+
+    let mut out=Vec::new();
+    let mut base=0usize;
+
+    for (nx, ny, stride) in [(n80,n80,8), (n40,n40,16), (n20,n20,32)] {
+        for gy in 0..ny {
+            for gx in 0..nx {
+                let i = base + gy*nx + gx;
+
+                // xywh decode sesuai YOLOv8 head
+                let px = sigmoid(get(0,i))*2.0 - 0.5;
+                let py = sigmoid(get(1,i))*2.0 - 0.5;
+                let pw = (sigmoid(get(2,i))*2.0).powi(2);
+                let ph = (sigmoid(get(3,i))*2.0).powi(2);
+
+                let cx = (px + gx as f32) * stride as f32;
+                let cy = (py + gy as f32) * stride as f32;
+                let w  = pw * stride as f32;
+                let h  = ph * stride as f32;
+
+                let mut x1 = cx - w/2.0;
+                let mut y1 = cy - h/2.0;
+                let mut x2 = cx + w/2.0;
+                let mut y2 = cy + h/2.0;
+
+                // kelas terbaik (logits → sigmoid)
+                let mut best_c=0usize; let mut best_p=f32::MIN;
+                for cc in 0..nc { let p=sigmoid(get(4+cc,i)); if p>best_p { best_p=p; best_c=cc; } }
+                if best_p < conf { continue; }
+
+                // mapping balik letterbox
+                let fx=(x1-pad_x as f32).max(0.0); let fy=(y1-pad_y as f32).max(0.0);
+                let fx2=(x2-pad_x as f32).max(0.0); let fy2=(y2-pad_y as f32).max(0.0);
+                let inv=1.0/scale;
+                x1=(fx*inv).clamp(0.0,(orig_w-1) as f32);
+                y1=(fy*inv).clamp(0.0,(orig_h-1) as f32);
+                x2=(fx2*inv).clamp(0.0,(orig_w-1) as f32);
+                y2=(fy2*inv).clamp(0.0,(orig_h-1) as f32);
+
+                if (x2-x1)>=2.0 && (y2-y1)>=2.0 { out.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c}); }
+            }
+        }
+        base += nx*ny;
+    }
+    Ok(out)
+}
+
 fn main()->Result<()>{
     // cargo run --release -- <best.onnx> <classes.json> <image> [imgsz=640] [conf=0.25] [iou=0.45] [save=result.png]
     let a:Vec<String>=env::args().collect();
@@ -77,15 +174,15 @@ fn main()->Result<()>{
     let iou_t:f32=a.get(6).and_then(|s|s.parse().ok()).unwrap_or(0.45);
     let save=PathBuf::from(a.get(7).cloned().unwrap_or_else(||"result.png".to_string()));
 
-    // classes.json (harus 4 item: License_Plate, cars, motorcyle, truck)
+    // classes.json: ["License_Plate","cars","motorcyle","truck"]
     let txt=fs::read_to_string(&classes_path).context("read classes.json")?;
     let j:Value=serde_json::from_str(&txt).context("parse classes.json")?;
     let arr=j.as_array().ok_or_else(||anyhow!("classes.json harus array string"))?;
     let class_names:Vec<String>=arr.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect();
-    if class_names.len()!=4 { bail!("classes.json harus 4 item persis"); }
-    let c_expect = 4 + class_names.len(); // 8
+    if class_names.len()!=4 { bail!("classes.json harus 4 item (License_Plate,cars,motorcyle,truck)"); }
+    let c = 4 + class_names.len(); // 8
 
-    // baca gambar
+    // gambar
     let mut img=imgcodecs::imread(image_path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)
         .with_context(||format!("open {:?}", image_path))?;
     if img.empty(){ bail!("gagal baca gambar"); }
@@ -114,117 +211,75 @@ fn main()->Result<()>{
     let mut outs:Vector<Mat>=Vector::new();
     net.forward(&mut outs, &names)?;
     if outs.len()==0 { bail!("model tidak mengembalikan output"); }
-    let out=outs.get(0)?; // tensor utama
+    let out=outs.get(0)?; // [1, 8, N] atau [1, N, 8]
 
-    // buffer output
+    // buffer
     let total = out.total() as usize;
     let flat:&[f32]=out.data_typed()?;
-    if total % c_expect != 0 { bail!("elemen output {} tidak habis dibagi C(exp)={}", total, c_expect); }
-    let n = total / c_expect;
+    if total % c != 0 { bail!("elemen output {} tidak habis dibagi C={}", total, c); }
+    let n = total / c;
 
-    // map dari kanvas → gambar asli
-    let map_to_orig = |x1:f32,y1:f32,x2:f32,y2:f32, use_letterbox:bool| -> (f32,f32,f32,f32) {
-        if use_letterbox {
-            let fx  = (x1 - pad_x as f32).max(0.0);
-            let fy  = (y1 - pad_y as f32).max(0.0);
-            let fx2 = (x2 - pad_x as f32).max(0.0);
-            let fy2 = (y2 - pad_y as f32).max(0.0);
-            let inv = 1.0 / scale;
-            (
-                (fx  * inv).clamp(0.0, (orig_w - 1) as f32),
-                (fy  * inv).clamp(0.0, (orig_h - 1) as f32),
-                (fx2 * inv).clamp(0.0, (orig_w - 1) as f32),
-                (fy2 * inv).clamp(0.0, (orig_h - 1) as f32),
-            )
-        } else {
-            (
-                x1.clamp(0.0, (orig_w - 1) as f32),
-                y1.clamp(0.0, (orig_h - 1) as f32),
-                x2.clamp(0.0, (orig_w - 1) as f32),
-                y2.clamp(0.0, (orig_h - 1) as f32),
-            )
+    // Dua layout: C×N dan N×C
+    let get_cxn = |ch:usize, idx:usize| -> f32 { flat[ch*n + idx] };
+    let get_nxc = |ch:usize, idx:usize| -> f32 { flat[idx*c + ch] };
+
+    // Kandidat dari JALUR-B (raw head, grid/stride)
+    let mut cands: Vec<(String, Vec<Det>)> = Vec::new();
+    if let Ok(v) = decode_raw_with_grid(&get_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz) {
+        cands.push(("RAW C×N".into(), v));
+    }
+    if let Ok(v) = decode_raw_with_grid(&get_nxc, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz) {
+        cands.push(("RAW N×C".into(), v));
+    }
+
+    // Kandidat dari JALUR-A (sudah decoded)
+    for &(xyxy, norm, name) in &[
+        (false,true,  "DEC XYWH norm C×N"),
+        (true, true,  "DEC XYXY norm C×N"),
+        (false,false, "DEC XYWH pix  C×N"),
+        (true, false, "DEC XYXY pix  C×N"),
+    ]{
+        if let Ok(v) = decode_decoded(&get_cxn, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz, xyxy, norm) {
+            cands.push((name.into(), v));
         }
-    };
-
-    // generator kandidat (getter, xywh/xyxy, with/without letterbox)
-    let make_cand = |getter: &dyn Fn(usize,usize)->f32, xyxy_mode: bool, use_letterbox: bool| -> Result<Vec<Det>> {
-        // skala bbox: normalized vs pixel
-        let mut bbox_max=0.0f32;
-        for i in 0..n { for ch in 0..4 { bbox_max=bbox_max.max(getter(ch,i).abs()); } }
-        let bbox_in_pixels = bbox_max > 1.5;
-
-        // logits / prob kelas
-        let mut mn=f32::INFINITY; let mut mx=f32::NEG_INFINITY;
-        for i in 0..n { for ch in 4..c_expect { let v=getter(ch,i); if v<mn{mn=v} if v>mx{mx=v} } }
-        let need_sigmoid = mn < -0.01 || mx > 1.01;
-        let sig = |x:f32| 1.0/(1.0+(-x).exp());
-
-        let mut v=Vec::new();
-        for i in 0..n {
-            let (mut x1,mut y1,mut x2,mut y2) = if xyxy_mode {
-                (getter(0,i), getter(1,i), getter(2,i), getter(3,i))
-            } else {
-                let (mut cx,mut cy,mut w,mut h)=(getter(0,i), getter(1,i), getter(2,i), getter(3,i));
-                if !bbox_in_pixels { cx*=imgsz as f32; cy*=imgsz as f32; w*=imgsz as f32; h*=imgsz as f32; }
-                (cx-w/2.0, cy-h/2.0, cx+w/2.0, cy+h/2.0)
-            };
-            if xyxy_mode && !bbox_in_pixels {
-                x1*=imgsz as f32; y1*=imgsz as f32; x2*=imgsz as f32; y2*=imgsz as f32;
-            }
-            // kelas terbaik
-            let mut best_c=0usize; let mut best_p=f32::MIN;
-            for cc in 0..(c_expect-4) {
-                let mut p=getter(4+cc,i);
-                if need_sigmoid { p = sig(p); }
-                if p>best_p { best_p=p; best_c=cc; }
-            }
-            if best_p<conf { continue; }
-            let (x1,y1,x2,y2)=map_to_orig(x1,y1,x2,y2, use_letterbox);
-            if (x2-x1)>=2.0 && (y2-y1)>=2.0 {
-                v.push(Det{x1,y1,x2,y2,score:best_p,cls:best_c});
-            }
+    }
+    for &(xyxy, norm, name) in &[
+        (false,true,  "DEC XYWH norm N×C"),
+        (true, true,  "DEC XYXY norm N×C"),
+        (false,false, "DEC XYWH pix  N×C"),
+        (true, false, "DEC XYXY pix  N×C"),
+    ]{
+        if let Ok(v) = decode_decoded(&get_nxc, c, n, conf, &class_names, orig_w,orig_h,scale,pad_x,pad_y,imgsz, xyxy, norm) {
+            cands.push((name.into(), v));
         }
-        Ok(v)
-    };
-
-    // 8 kombinasi (layout × format × mapping)
-    let cand = [
-        ("C×N, XYWH, with LBOX", make_cand(&|ch,i| flat[ch*n + i], false, true)?),
-        ("C×N, XYWH, no LBOX",   make_cand(&|ch,i| flat[ch*n + i], false, false)?),
-        ("C×N, XYXY, with LBOX", make_cand(&|ch,i| flat[ch*n + i], true,  true)?),
-        ("C×N, XYXY, no LBOX",   make_cand(&|ch,i| flat[ch*n + i], true,  false)?),
-        ("N×C, XYWH, with LBOX", make_cand(&|ch,i| flat[i*c_expect + ch], false, true)?),
-        ("N×C, XYWH, no LBOX",   make_cand(&|ch,i| flat[i*c_expect + ch], false, false)?),
-        ("N×C, XYXY, with LBOX", make_cand(&|ch,i| flat[i*c_expect + ch], true,  true)?),
-        ("N×C, XYXY, no LBOX",   make_cand(&|ch,i| flat[i*c_expect + ch], true,  false)?),
-    ];
+    }
 
     // pilih terbaik (valid terbanyak, lalu skor rata-rata)
     let mut best_idx=0usize; let mut best_valid=0usize; let mut best_avg=0.0f32;
-    for (idx, (_name, v)) in cand.iter().enumerate() {
+    for (i, (_nm, v)) in cands.iter().enumerate() {
         let (valid, avg) = quality_score(v, orig_w, orig_h);
-        if valid > best_valid || (valid==best_valid && avg>best_avg) {
-            best_idx=idx; best_valid=valid; best_avg=avg;
+        if valid > best_valid || (valid==best_valid && avg > best_avg) {
+            best_idx = i; best_valid = valid; best_avg = avg;
         }
     }
     let (chosen_name, mut dets) = {
-        let (name, v) = &cand[best_idx];
-        (name.to_string(), v.clone())
+        let (nm, v) = &cands[best_idx];
+        (nm.clone(), v.clone())
     };
-    eprintln!("[info] decode chosen: {} | boxes(valid)={}", chosen_name, best_valid);
+    eprintln!("[info] decode chosen: {} | valid={}, avg={:.3}", chosen_name, best_valid, best_avg);
 
+    // NMS & gambar SEMUA kelas (License_Plate juga ikut)
     dets = nms(dets, iou_t);
-
-    // gambar hanya kendaraan & hitung
-    let mut vehicle_count=0usize;
+    let mut per_class = vec![0usize; class_names.len()];
     for d in &dets {
-        let label = class_names.get(d.cls).map(|s| s.as_str()).unwrap_or("");
-        if is_vehicle_label(label) {
-            vehicle_count += 1;
-            draw_box(&mut img, d, label)?;
-        }
+        let label = class_names.get(d.cls).map(|s| s.as_str()).unwrap_or("obj");
+        per_class[d.cls]+=1;
+        draw_box(&mut img, d, label)?;
     }
-    println!("vehicle_count: {}", vehicle_count);
+    for (i,cnt) in per_class.iter().enumerate() {
+        eprintln!("{}: {}", class_names[i], cnt);
+    }
+
     imgcodecs::imwrite(save.to_str().unwrap(), &img, &Vector::new())?;
     println!("saved: {:?}", save);
     Ok(())
